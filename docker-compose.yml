@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-job_engine}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-german_job_engine}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-job_engine}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${EMAIL_ATTACHMENT_STORAGE_ACCESS_KEY:-job_engine_storage}
+      MINIO_ROOT_PASSWORD: ${EMAIL_ATTACHMENT_STORAGE_SECRET_KEY:-change_me_storage}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${EMAIL_ATTACHMENT_STORAGE_PORT:-9000}:9000"
+      - "${EMAIL_ATTACHMENT_STORAGE_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Overrides the host-facing DATABASE_URL from .env (which correctly points at
+      # localhost:5432 for local, non-containerized `pnpm start:dev`) — inside the compose
+      # network, api must reach Postgres via its service name, not localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-job_engine}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-german_job_engine}?schema=public
+      # Same reasoning as DATABASE_URL above — inside the compose network, api reaches MinIO
+      # via its service name, not localhost:9000 (which .env correctly uses for host-side
+      # `pnpm start:dev`).
+      EMAIL_ATTACHMENT_STORAGE_ENDPOINT: http://minio:9000
+    ports:
+      - "${PORT:-4000}:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # .env's PORT=4000 is meant for the api service; web also loads .env wholesale via
+      # env_file, and `next start` binds to the generic PORT variable if present, so without
+      # this override web silently listens on 4000 inside the container while nothing accepts
+      # connections on the 3000 the compose network/host actually route to it.
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  minio_data:

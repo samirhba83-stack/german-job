@@ -1,0 +1,14 @@
+{
+  "extends": "@german-job-engine/config/typescript/nestjs.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": "./src",
+    "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo",
+    "paths": {
+      "@/*": ["*"]
+    }
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

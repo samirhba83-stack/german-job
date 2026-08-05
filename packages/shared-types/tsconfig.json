@@ -1,0 +1,10 @@
+{
+  "extends": "@german-job-engine/config/typescript/base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo"
+  },
+  "include": ["src"]
+}

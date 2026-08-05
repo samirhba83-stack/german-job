@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Design tokens — real values committed in Milestone 21 (docs/design-system/03-design-tokens.md).
+ * CSS custom properties are the resolution mechanism for dark mode (docs/frontend-architecture/
+ * 11-design-system-foundation.md): components reference the Tailwind semantic class (e.g. bg-surface,
+ * text-primary), never a raw color or [data-theme] branch — the variables below are the only place
+ * light/dark values are ever defined.
+ */
+:root {
+  /* Brand accent — indigo-600 light / indigo-400 dark (M21 §3) */
+  --color-accent: 79 70 229; /* #4F46E5 */
+  --color-accent-hover: 67 56 202; /* indigo-700, hover */
+  --color-accent-active: 55 48 163; /* indigo-800, active */
+
+  /* Neutral scale (Tailwind slate — M21 §3) */
+  --color-neutral-50: 248 250 252;
+  --color-neutral-100: 241 245 249;
+  --color-neutral-200: 226 232 240;
+  --color-neutral-300: 203 213 225;
+  --color-neutral-400: 148 163 184;
+  --color-neutral-500: 100 116 139;
+  --color-neutral-600: 71 85 105;
+  --color-neutral-700: 51 65 85;
+  --color-neutral-800: 30 41 59;
+  --color-neutral-900: 15 23 42;
+  --color-neutral-950: 2 6 23;
+
+  /* Semantic status colors (M21 §3).
+     M27.5 accessibility fix: a real axe-core scan of the redesigned Billing/Pricing pages found
+     every one of these four tones failing WCAG AA (4.5:1) against their own Badge's `/10`
+     background at caption size — only `--color-status-neutral` had been fixed before (M25). Measured
+     ratios at the shipped -600 shade: positive 3.34:1, warning 2.86:1, critical 4.14:1, info 3.61:1
+     — all real failures, not edge cases. Each bumped to the lightest shade that actually clears
+     4.5:1 (verified by computing the real WCAG contrast formula against a white-composited `/10`
+     background, not eyeballed): emerald-700, amber-800 (700 alone still measured 4.38:1, short),
+     red-700, sky-700. Dark mode's -400 shades were verified already passing (5.69–8.87:1 against
+     the real dark surface) and are unchanged. */
+  --color-status-positive: 4 120 87; /* emerald-700 */
+  --color-status-warning: 146 64 14; /* amber-800 */
+  --color-status-critical: 185 28 28; /* red-700 */
+  --color-status-info: 3 105 161; /* sky-700 */
+  /* neutral-600, not neutral-500 (M25 sign-off audit fix): neutral-500 (#64748b) measured
+     4.04:1 against its own bg-status-neutral/10 fill in a real axe-core scan — below the WCAG AA
+     4.5:1 minimum for normal text. neutral-600 (#475569) clears it with margin while staying the
+     same semantic "neutral" hue. */
+  --color-status-neutral: 71 85 105; /* neutral-600 */
+
+  /* Background / surface / border / text roles (M21 §3) */
+  --color-background-default: var(--color-neutral-50);
+  --color-background-subtle: var(--color-neutral-100);
+  --color-background-inverse: var(--color-neutral-900);
+  --color-surface-default: 255 255 255;
+  --color-surface-raised: 255 255 255;
+  --color-surface-overlay: 255 255 255;
+  --color-border-default: var(--color-neutral-200);
+  --color-border-subtle: var(--color-neutral-100);
+  --color-border-focus: var(--color-accent);
+  --color-text-primary: var(--color-neutral-900);
+  /* neutral-600, not neutral-500 (M25 sign-off audit fix): neutral-500 measured 4.34:1 against
+     bg-background-subtle in a real axe-core scan — below the WCAG AA 4.5:1 minimum. Same fix as
+     --color-status-neutral above, same reason. */
+  --color-text-secondary: var(--color-neutral-600);
+  --color-text-disabled: var(--color-neutral-400);
+  --color-text-inverse: 255 255 255;
+
+  /* Elevation (M21 §3) — light-mode shadow values */
+  --shadow-elevation-1: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-elevation-2: 0 4px 8px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.06);
+  --shadow-elevation-3: 0 12px 24px rgba(15, 23, 42, 0.14), 0 4px 8px rgba(15, 23, 42, 0.08);
+  --color-scrim: 15 23 42;
+  --opacity-scrim: 0.5;
+  /* Milestone 22.3 audit fix: previously `components/ui/skeleton.tsx` hardcoded
+     `bg-neutral-200 dark:bg-neutral-800` directly — the only component in the library using
+     Tailwind's `dark:` variant instead of resolving through this file's token layer (ADR-005's
+     "zero component-level branching" rule). Same visual values as before; now expressed as a
+     real, named token like everything else. */
+  --color-skeleton: var(--color-neutral-200);
+  /* M27.5 — the shimmer sweep's highlight stop (Skeleton). Lighter than --color-skeleton itself
+     in both themes (real WCAG contrast doesn't apply to a decorative loading placeholder, but a
+     shimmer that isn't visibly lighter than its own base reads as broken, not premium). */
+  --color-skeleton-highlight: var(--color-neutral-50);
+}
+
+:root[data-theme='dark'] {
+  --color-accent: 129 140 248; /* indigo-400 */
+  --color-accent-hover: 165 180 252; /* indigo-300 */
+  --color-accent-active: 199 210 254; /* indigo-200 */
+
+  --color-status-positive: 52 211 153; /* emerald-400 */
+  --color-status-warning: 251 191 36; /* amber-400 */
+  --color-status-critical: 248 113 113; /* red-400 */
+  --color-status-info: 56 189 248; /* sky-400 */
+  --color-status-neutral: 148 163 184; /* neutral-400 */
+
+  --color-background-default: var(--color-neutral-950);
+  --color-background-subtle: var(--color-neutral-900);
+  --color-background-inverse: var(--color-neutral-50);
+  --color-surface-default: var(--color-neutral-900);
+  --color-surface-raised: var(--color-neutral-800);
+  --color-surface-overlay: var(--color-neutral-800);
+  --color-border-default: var(--color-neutral-700);
+  --color-border-subtle: var(--color-neutral-800);
+  --color-text-primary: var(--color-neutral-50);
+  --color-text-secondary: var(--color-neutral-400);
+  --color-text-disabled: var(--color-neutral-600);
+  --color-text-inverse: var(--color-neutral-900);
+
+  /* Dark-mode elevation leans on border + reduced shadow opacity, not a darker shadow
+     (M21 §3 rationale: shadows are barely visible against a dark surface). */
+  --shadow-elevation-1: 0 0 0 1px rgb(var(--color-neutral-700));
+  --shadow-elevation-2: 0 0 0 1px rgb(var(--color-neutral-700)), 0 4px 8px rgba(0, 0, 0, 0.24);
+  --shadow-elevation-3: 0 0 0 1px rgb(var(--color-neutral-700)), 0 12px 24px rgba(0, 0, 0, 0.4);
+  --color-scrim: 2 6 23;
+  --opacity-scrim: 0.7;
+  --color-skeleton: var(--color-neutral-800);
+  --color-skeleton-highlight: var(--color-neutral-700);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-accent: 129 140 248;
+    --color-accent-hover: 165 180 252;
+    --color-accent-active: 199 210 254;
+    --color-status-positive: 52 211 153;
+    --color-status-warning: 251 191 36;
+    --color-status-critical: 248 113 113;
+    --color-status-info: 56 189 248;
+    --color-status-neutral: 148 163 184;
+    --color-background-default: var(--color-neutral-950);
+    --color-background-subtle: var(--color-neutral-900);
+    --color-background-inverse: var(--color-neutral-50);
+    --color-surface-default: var(--color-neutral-900);
+    --color-surface-raised: var(--color-neutral-800);
+    --color-surface-overlay: var(--color-neutral-800);
+    --color-border-default: var(--color-neutral-700);
+    --color-border-subtle: var(--color-neutral-800);
+    --color-text-primary: var(--color-neutral-50);
+    --color-text-secondary: var(--color-neutral-400);
+    --color-text-disabled: var(--color-neutral-600);
+    --color-text-inverse: var(--color-neutral-900);
+    --shadow-elevation-1: 0 0 0 1px rgb(var(--color-neutral-700));
+    --shadow-elevation-2: 0 0 0 1px rgb(var(--color-neutral-700)), 0 4px 8px rgba(0, 0, 0, 0.24);
+    --shadow-elevation-3: 0 0 0 1px rgb(var(--color-neutral-700)), 0 12px 24px rgba(0, 0, 0, 0.4);
+    --color-skeleton: var(--color-neutral-800);
+    --color-skeleton-highlight: var(--color-neutral-700);
+    --color-scrim: 2 6 23;
+    --opacity-scrim: 0.7;
+  }
+}
+
+/**
+ * High-contrast support (Milestone 22.2 accessibility expansion). `prefers-contrast: more` is a
+ * real, standard media feature (macOS "Increase contrast," Windows "High contrast") — this only
+ * strengthens existing tokens (borders, secondary text, focus ring), it never introduces a
+ * separate palette. Mirrors the light/dark/system layering above so a high-contrast preference
+ * applies correctly regardless of which theme is active.
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --color-border-default: var(--color-neutral-400);
+    --color-text-secondary: var(--color-neutral-700);
+  }
+  :root[data-theme='dark'] {
+    --color-border-default: var(--color-neutral-500);
+    --color-text-secondary: var(--color-neutral-200);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --color-border-default: var(--color-neutral-500);
+      --color-text-secondary: var(--color-neutral-200);
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-primary antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-border-focus ring-offset-2 ring-offset-background;
+  }
+  @media (prefers-contrast: more) {
+    :focus-visible {
+      @apply ring-[3px];
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

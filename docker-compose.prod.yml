@@ -1,0 +1,14 @@
+services:
+  postgres:
+    restart: always
+    ports: []
+
+  api:
+    restart: always
+    environment:
+      NODE_ENV: production
+
+  web:
+    restart: always
+    environment:
+      NODE_ENV: production

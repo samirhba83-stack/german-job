@@ -1,0 +1,9 @@
+export enum CampaignTargetStatus {
+  PENDING = 'PENDING',
+  SELECTED = 'SELECTED',
+  QUEUED = 'QUEUED',
+  DISPATCHED = 'DISPATCHED',
+  SKIPPED = 'SKIPPED',
+  FAILED = 'FAILED',
+  EXCLUDED = 'EXCLUDED',
+}

@@ -1,0 +1,26 @@
+export type {
+  CampaignDto,
+  CampaignGoalDto,
+  CampaignStrategyDto,
+  SmartBatchPlanDto,
+  ExecutionWindowDto,
+  RateLimitProfileDto,
+  CampaignCheckpointDto,
+  CampaignCooldownDto,
+  CampaignHealthDto,
+  CampaignIntelligenceDto,
+  CampaignTimelineEntryDto,
+  PaginatedCampaignsDto,
+  CampaignTargetStatusBreakdownDto,
+  CampaignBatchSummaryDto,
+  CampaignGoalProgressDto,
+  CampaignExecutionStatusDto,
+} from '@german-job-engine/shared-types';
+export {
+  CampaignStatus,
+  CampaignTargetStatus,
+  CampaignReasonCode,
+  CampaignStrategyType,
+  CampaignOutcomeGoal,
+  Weekday,
+} from '@german-job-engine/shared-types';

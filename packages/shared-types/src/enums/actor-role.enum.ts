@@ -1,0 +1,7 @@
+export enum ActorRole {
+  CANDIDATE = 'CANDIDATE',
+  COMPANY = 'COMPANY',
+  ADMIN = 'ADMIN',
+  SYSTEM = 'SYSTEM',
+  AUTOMATION = 'AUTOMATION',
+}

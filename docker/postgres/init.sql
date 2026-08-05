@@ -1,0 +1,2 @@
+-- Placeholder for one-time Postgres bootstrap (extensions, roles) if ever needed.
+-- No-op for now — Prisma migrations own schema management.

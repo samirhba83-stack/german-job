@@ -1,0 +1,8 @@
+export enum ApplicationStatus {
+  SUBMITTED = 'SUBMITTED',
+  IN_REVIEW = 'IN_REVIEW',
+  INTERVIEW = 'INTERVIEW',
+  OFFERED = 'OFFERED',
+  REJECTED = 'REJECTED',
+  WITHDRAWN = 'WITHDRAWN',
+}

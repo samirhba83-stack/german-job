@@ -1,0 +1,30 @@
+# Dependency trees and build outputs must be produced fresh inside the image — copying the
+# host's (possibly Windows-native, possibly stale) node_modules/dist in breaks pnpm's symlinked
+# store when the build later runs `pnpm install` on top of it.
+node_modules
+**/node_modules
+dist
+**/dist
+.next
+**/.next
+.turbo
+**/.turbo
+coverage
+**/coverage
+
+# VCS and editor metadata
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Secrets and local env files must never be baked into an image layer
+.env
+.env.*
+!.env.example
+
+# Misc
+*.log
+npm-debug.log*
+.DS_Store

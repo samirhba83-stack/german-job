@@ -1,0 +1,47 @@
+{
+  "name": "@german-job-engine/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "clean": "rimraf .next"
+  },
+  "dependencies": {
+    "@german-job-engine/shared-types": "workspace:*",
+    "@tanstack/react-query": "^5.59.0",
+    "clsx": "^2.1.1",
+    "jwt-decode": "^4.0.0",
+    "lucide-react": "^0.451.0",
+    "next": "^14.2.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.4",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@german-job-engine/config": "workspace:*",
+    "@playwright/test": "^1.48.0",
+    "@tanstack/react-query-devtools": "^5.59.0",
+    "@testing-library/react": "^16.0.1",
+    "@types/node": "^20.16.10",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.15",
+    "jsdom": "^25.0.1",
+    "postcss": "^8.4.47",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.2"
+  }
+}

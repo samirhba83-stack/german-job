@@ -1,0 +1,2127 @@
+// Prisma schema — structural stubs only, no business logic.
+// Fields are limited to what's needed for a valid schema per bounded context.
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" covers local development (Windows/macOS/Linux hosts running `prisma generate`
+  // directly); "linux-musl-openssl-3.0.x" is required for the Alpine-based Docker image, whose
+  // OpenSSL 3.0 runtime has no libssl.so.1.1 — Prisma's engine auto-detection defaults to the
+  // 1.1.x target when it can't positively identify the OpenSSL version, which fails at runtime
+  // inside the container. Pinning both targets removes the guesswork entirely.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Users & Auth ----------
+
+enum UserRole {
+  ADMIN
+  EMPLOYER
+  CANDIDATE
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  role      UserRole @default(CANDIDATE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company                Company?
+  subscriptions          Subscription[]
+  refreshToken           RefreshToken?
+  profile                UserProfile?
+  candidateDocuments     CandidateDocument[]
+  connectedMailboxes     ConnectedMailbox[]
+  oauthTransactions      OAuthTransaction[]
+  notifications          Notification[]
+  notificationPreference NotificationPreference?
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("refresh_tokens")
+}
+
+// ---------- User Profile ----------
+
+enum GermanLevel {
+  A1
+  A2
+  B1
+  B2
+  C1
+  C2
+  NATIVE
+}
+
+enum LanguageProficiency {
+  BASIC
+  CONVERSATIONAL
+  FLUENT
+  NATIVE
+}
+
+enum AvailabilityStatus {
+  IMMEDIATELY
+  WITHIN_1_MONTH
+  WITHIN_3_MONTHS
+  NOT_AVAILABLE
+}
+
+model UserProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  germanLevel     GermanLevel?
+  skills          String[]     @default([])
+  preferredCities String[]     @default([])
+
+  salaryExpectationMin      Int?
+  salaryExpectationMax      Int?
+  salaryExpectationCurrency String?
+
+  availabilityStatus AvailabilityStatus?
+  availableFrom      DateTime?
+
+  cvFileName   String?
+  cvFileUrl    String?
+  cvMimeType   String?
+  cvSizeBytes  Int?
+  cvUploadedAt DateTime?
+
+  photoFileName   String?
+  photoFileUrl    String?
+  photoMimeType   String?
+  photoSizeBytes  Int?
+  photoUploadedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workExperiences WorkExperienceEntry[]
+  educations      EducationEntry[]
+  languages       LanguageEntry[]
+
+  @@map("user_profiles")
+}
+
+model WorkExperienceEntry {
+  id          String      @id @default(uuid())
+  profileId   String
+  profile     UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  company     String
+  title       String
+  startDate   DateTime
+  endDate     DateTime?
+  description String?
+  createdAt   DateTime    @default(now())
+
+  @@map("work_experience_entries")
+}
+
+model EducationEntry {
+  id           String      @id @default(uuid())
+  profileId    String
+  profile      UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  institution  String
+  degree       String
+  fieldOfStudy String?
+  startDate    DateTime
+  endDate      DateTime?
+  createdAt    DateTime    @default(now())
+
+  @@map("education_entries")
+}
+
+model LanguageEntry {
+  id          String              @id @default(uuid())
+  profileId   String
+  profile     UserProfile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  language    String
+  proficiency LanguageProficiency
+  createdAt   DateTime            @default(now())
+
+  @@map("language_entries")
+}
+
+// ---------- Company Domain ----------
+
+enum CompanyStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum CompanyIndustry {
+  IT_SOFTWARE
+  ENGINEERING
+  MANUFACTURING
+  FINANCE
+  HEALTHCARE
+  RETAIL
+  LOGISTICS
+  CONSTRUCTION
+  HOSPITALITY
+  EDUCATION
+  CONSULTING
+  OTHER
+}
+
+enum CompanySize {
+  STARTUP
+  SMALL
+  MEDIUM
+  LARGE
+  ENTERPRISE
+}
+
+enum VisaSponsorship {
+  NOT_OFFERED
+  CASE_BY_CASE
+  OFFERED
+}
+
+enum AusbildungSupport {
+  NOT_OFFERED
+  LIMITED
+  OFFERED
+}
+
+model Company {
+  id       String          @id @default(uuid())
+  ownerId  String          @unique
+  owner    User            @relation(fields: [ownerId], references: [id])
+  name     String
+  status   CompanyStatus   @default(ACTIVE)
+  industry CompanyIndustry
+  size     CompanySize
+
+  city         String
+  country      String
+  postalCode   String?
+  street       String?
+  // M18: real, verified geographic data only — never inferred from city/postalCode. Stays
+  // null until a real company record actually supplies it (no lookup table, no estimation).
+  federalState String?
+  latitude     Float?
+  longitude    Float?
+
+  websiteUrl String?
+
+  contactName  String?
+  contactEmail String
+  contactPhone String?
+
+  visaSponsorship   VisaSponsorship   @default(NOT_OFFERED)
+  ausbildungSupport AusbildungSupport @default(NOT_OFFERED)
+
+  hiringQualityScore      Int?
+  hiringQualityComputedAt DateTime?
+
+  trustScoreValue      Int?
+  trustScoreComputedAt DateTime?
+
+  description String?
+  logoUrl     String?
+  foundedYear Int?
+  tags        String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobListings JobListing[]
+
+  @@map("companies")
+}
+
+// ---------- Jobs & Listings ----------
+// NOTE: the model is named `JobListing` (not `Job`) because the Applications bounded
+// context's `Application.jobListing` relation already depends on this name. The domain
+// layer's aggregate is named `Job`; the mapper bridges the naming difference.
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  INTERNSHIP
+  WORKING_STUDENT
+  FREELANCE
+  AUSBILDUNG
+  DUAL_STUDY
+}
+
+enum ContractType {
+  PERMANENT
+  FIXED_TERM
+  TEMPORARY
+  FREELANCE_CONTRACT
+}
+
+enum RemotePolicy {
+  ON_SITE
+  HYBRID
+  REMOTE
+}
+
+enum JobStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+  CLOSED
+}
+
+enum Currency {
+  EUR
+  USD
+  GBP
+  CHF
+}
+
+enum SalaryPeriod {
+  HOURLY
+  MONTHLY
+  ANNUAL
+}
+
+enum ExperienceLevel {
+  ENTRY_LEVEL
+  JUNIOR
+  MID_LEVEL
+  SENIOR
+  LEAD
+  EXECUTIVE
+}
+
+enum EducationLevel {
+  NONE
+  SECONDARY_SCHOOL
+  VOCATIONAL_TRAINING
+  BACHELOR
+  MASTER
+  PHD
+}
+
+enum EnglishLevel {
+  A1
+  A2
+  B1
+  B2
+  C1
+  C2
+  NATIVE
+}
+
+model JobListing {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  title       String
+  description String
+
+  employmentType EmploymentType
+  contractType   ContractType
+
+  workingTimeHoursPerWeek Int?
+  workingTimeIsFlexible   Boolean @default(false)
+
+  city       String
+  country    String
+  postalCode String?
+  street     String?
+
+  remotePolicy RemotePolicy @default(ON_SITE)
+
+  salaryMin      Int?
+  salaryMax      Int?
+  salaryCurrency Currency?
+  salaryPeriod   SalaryPeriod?
+
+  experienceMinYears Int?
+  experienceLevel    ExperienceLevel?
+
+  educationLevel        EducationLevel?
+  educationFieldOfStudy String?
+  educationRequired     Boolean?
+
+  germanLevelRequired GermanLevel?
+  germanRequired      Boolean?
+
+  englishLevelRequired EnglishLevel?
+  englishRequired      Boolean?
+
+  visaSponsorshipAvailable    VisaSponsorship?
+  requiresEuWorkAuthorization Boolean?
+
+  isAusbildungPosition     Boolean @default(false)
+  ausbildungDurationMonths Int?
+
+  applicationDeadline DateTime?
+
+  status JobStatus @default(DRAFT)
+
+  benefits         String[] @default([])
+  requiredSkills   String[] @default([])
+  niceToHaveSkills String[] @default([])
+  tags             String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications Application[]
+
+  @@index([status, createdAt])
+  @@index([companyId])
+  @@index([city])
+  @@index([employmentType])
+  @@index([contractType])
+  @@index([remotePolicy])
+  @@map("job_listings")
+}
+
+// ---------- Applications (Application Lifecycle Engine) ----------
+// NOTE: `candidateId` and `companyId` are denormalized plain strings (no FK relation)
+// by deliberate design — the Applications bounded context does not depend on the
+// Users/Profiles or Companies modules' repositories (see domain design decisions).
+// `jobId` keeps a real relation to `JobListing` since that FK already existed.
+
+enum ApplicationLifecycleStatus {
+  DRAFT
+  PREPARED
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  VIEWED
+  COMPANY_REPLIED
+  INTERVIEW_SCHEDULED
+  INTERVIEW_COMPLETED
+  OFFER_RECEIVED
+  CONTRACT_SIGNED
+  REJECTED
+  WITHDRAWN
+  ARCHIVED
+}
+
+enum ActorRole {
+  CANDIDATE
+  COMPANY
+  ADMIN
+  SYSTEM
+  AUTOMATION
+}
+
+enum ApplicationChannelType {
+  DIRECT
+  CAMPAIGN
+  REFERRAL
+  IMPORT
+  API
+}
+
+enum TransitionReasonCode {
+  CANDIDATE_REQUEST
+  COMPANY_DECISION
+  POSITION_FILLED
+  QUALIFICATION_MISMATCH
+  POLICY_TIMEOUT
+  DATA_RETENTION
+  DUPLICATE
+  SYSTEM_SIGNAL
+  OTHER
+}
+
+model Application {
+  id          String     @id @default(uuid())
+  candidateId String
+  jobId       String
+  job         JobListing @relation(fields: [jobId], references: [id])
+  companyId   String
+
+  status ApplicationLifecycleStatus @default(DRAFT)
+
+  snapshotJobTitle      String
+  snapshotCompanyName   String
+  snapshotJobLocation   String
+  snapshotSalarySummary String?
+  snapshotCapturedAt    DateTime @default(now())
+
+  channelType        ApplicationChannelType @default(DIRECT)
+  channelCampaignRef String?
+
+  intelReplyProbability     Float?
+  intelInterviewProbability Float?
+  intelOfferProbability     Float?
+  intelContractProbability  Float?
+
+  intelExpectedTimeToReplyAmount     Float?
+  intelExpectedTimeToReplyUnit       String?
+  intelExpectedTimeToInterviewAmount Float?
+  intelExpectedTimeToInterviewUnit   String?
+  intelExpectedTimeToContractAmount  Float?
+  intelExpectedTimeToContractUnit    String?
+
+  intelConfidenceScore           Float?
+  intelHistoricalSuccessScore    Float?
+  intelRiskScore                 Float?
+  intelDecisionExplanation       String?
+  intelRecommendationExplanation String?
+  intelComputedAt                DateTime?
+  intelComputedBy                String?
+
+  submittedAt    DateTime?
+  lastActivityAt DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  timeline TimelineEntry[]
+
+  @@index([candidateId])
+  @@index([jobId])
+  @@index([companyId])
+  @@index([status, createdAt])
+  @@map("applications")
+}
+
+model TimelineEntry {
+  id            String      @id @default(uuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  timestamp DateTime @default(now())
+
+  actorRole ActorRole
+  actorId   String?
+
+  sourceChannelType ApplicationChannelType
+  sourceCampaignRef String?
+
+  reasonCode TransitionReasonCode?
+  reasonNote String?
+
+  previousState ApplicationLifecycleStatus?
+  currentState  ApplicationLifecycleStatus
+
+  metadata Json?
+
+  correlationId String
+
+  evidenceType       String?
+  evidenceExternalId String?
+  evidenceUrl        String?
+
+  confidence Float?
+
+  @@index([applicationId, timestamp])
+  @@map("timeline_entries")
+}
+
+// ---------- Campaign Execution Engine ----------
+// NOTE: own copies of actor/reason/channel-shaped enums (CampaignActorRole, CampaignReasonCode,
+// etc.) rather than reusing the Applications module's — the Campaign bounded context is
+// deliberately self-contained (see domain design decisions). `ownerId` is a denormalized plain
+// string (no FK) for the same reason; `CampaignTarget.jobId`/`companyId` are plain strings too —
+// this domain never queries Jobs/Companies/Applications directly.
+
+enum CampaignStatus {
+  DRAFT
+  READY
+  RUNNING
+  PAUSED
+  COOLING_DOWN
+  RESUMING
+  COMPLETED
+  STOPPED
+  CANCELLED
+  ARCHIVED
+}
+
+enum CampaignStrategyType {
+  CONSERVATIVE
+  BALANCED
+  AGGRESSIVE
+  OUTCOME_OPTIMIZED
+  AI_OPTIMIZED
+  CUSTOM
+}
+
+enum CampaignTargetStatus {
+  PENDING
+  SELECTED
+  QUEUED
+  DISPATCHED
+  SKIPPED
+  FAILED
+  EXCLUDED
+}
+
+enum BatchStatus {
+  PLANNED
+  RUNNING
+  COMPLETED
+  PARTIALLY_COMPLETED
+  FAILED
+}
+
+enum DispatchOutcome {
+  SUCCEEDED
+  FAILED
+  SKIPPED
+}
+
+enum ReplayScope {
+  ALL_FAILED
+  SINCE_CHECKPOINT
+  SPECIFIC_TARGETS
+}
+
+enum CampaignActorRole {
+  CANDIDATE
+  ADMIN
+  SYSTEM
+  AUTOMATION
+}
+
+enum CampaignReasonCode {
+  CANDIDATE_REQUEST
+  GOAL_REACHED
+  RISK_THRESHOLD_EXCEEDED
+  COMPANY_FATIGUE_DETECTED
+  DUPLICATE_DETECTED
+  RATE_LIMIT_REACHED
+  EXECUTION_WINDOW_CLOSED
+  MANUAL_OVERRIDE
+  SYSTEM_SIGNAL
+  POLICY_TIMEOUT
+  OTHER
+}
+
+enum CampaignOutcomeGoal {
+  REPLIES
+  INTERVIEWS
+  OFFERS
+  CONTRACTS
+}
+
+enum TrendDirection {
+  UP
+  FLAT
+  DOWN
+}
+
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+model Campaign {
+  id      String @id @default(uuid())
+  ownerId String
+  name    String
+
+  // Optimistic concurrency token — compared and incremented atomically on every save() by
+  // PrismaCampaignRepository. Scoped to Campaign only (not a shared-kernel concern) because it
+  // is the one aggregate a Phase 4 execution worker can load and mutate concurrently.
+  version Int @default(0)
+
+  status CampaignStatus @default(DRAFT)
+
+  strategyType       CampaignStrategyType @default(BALANCED)
+  strategyParameters Json?
+
+  goalTargetApplicationCount Int
+  goalDesiredOutcome         CampaignOutcomeGoal
+  goalDeadline               DateTime?
+
+  batchPlanBaseSize           Int
+  batchPlanMinSize            Int
+  batchPlanMaxSize            Int
+  batchPlanAdaptive           Boolean @default(false)
+  batchPlanExpansionIncrement Int?
+
+  executionWindowWeekdays        Weekday[]
+  executionWindowDailyStartHour  Int
+  executionWindowDailyEndHour    Int
+  executionWindowTimezone        String
+  executionWindowRespectHolidays Boolean   @default(true)
+
+  rateLimitMaxPerDay              Int
+  rateLimitMaxPerHour             Int
+  rateLimitMaxPerCompanyPerWindow Int
+
+  adaptiveReplyRateFactor           Float?
+  adaptiveBounceRateFactor          Float?
+  adaptiveTimeOfDayFactor           Float?
+  adaptiveWeekdayFactor             Float?
+  adaptiveGermanHolidayFactor       Float?
+  adaptiveCompanyWorkingHoursFactor Float?
+  adaptiveCampaignHealthFactor      Float?
+  adaptiveCompanyFatigueFactor      Float?
+  adaptiveUserReputationFactor      Float?
+  adaptiveRiskScoreFactor           Float?
+  adaptiveComputedBy                String?
+  adaptiveComputedAt                DateTime?
+
+  checkpointLastCompletedBatchId String?
+  checkpointCursorPosition       Int?
+  checkpointSavedAt              DateTime?
+
+  cooldownStartedAt DateTime?
+  cooldownUntil     DateTime?
+  cooldownReason    CampaignReasonCode?
+
+  healthScore      Float?
+  riskScore        Float?
+  progressScore    Float?
+  successTrend     TrendDirection?
+  replyTrend       TrendDirection?
+  performanceTrend TrendDirection?
+  healthComputedBy String?
+  healthComputedAt DateTime?
+
+  intelBestSendTime              String?
+  intelBestBatchSize             Int?
+  intelBestCompanyOrder          String[]
+  intelBestResumeDocumentId      String?
+  intelBestResumeConfidence      Float?
+  intelBestResumeExplanation     String?
+  intelBestResumeSelectedBy      String?
+  intelBestResumeSelectedAt      DateTime?
+  intelBestMotivationDocumentId  String?
+  intelBestMotivationConfidence  Float?
+  intelBestMotivationExplanation String?
+  intelBestMotivationSelectedBy  String?
+  intelBestMotivationSelectedAt  DateTime?
+  intelReplyPrediction           Float?
+  intelInterviewPrediction       Float?
+  intelOfferPrediction           Float?
+  intelContractPrediction        Float?
+  intelRiskPrediction            Float?
+  intelDecisionExplanation       String?
+  intelRecommendationExplanation String?
+  intelComputedBy                String?
+  intelComputedAt                DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  targets       CampaignTarget[]
+  batches       Batch[]
+  companyMemory CompanyMemoryEntry[]
+  timeline      CampaignTimelineEntry[]
+
+  @@index([ownerId])
+  @@index([status, createdAt])
+  @@map("campaigns")
+}
+
+model CampaignTarget {
+  id         String   @id @default(uuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  jobId     String
+  companyId String
+
+  status CampaignTargetStatus @default(PENDING)
+
+  resumeDocumentId  String?
+  resumeConfidence  Float?
+  resumeExplanation String?
+  resumeSelectedBy  String?
+  resumeSelectedAt  DateTime?
+
+  motivationDocumentId  String?
+  motivationConfidence  Float?
+  motivationExplanation String?
+  motivationSelectedBy  String?
+  motivationSelectedAt  DateTime?
+
+  addedAt   DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dispatchAttempts DispatchAttempt[]
+
+  @@index([campaignId])
+  @@index([campaignId, status])
+  @@map("campaign_targets")
+}
+
+model DispatchAttempt {
+  id       String         @id @default(uuid())
+  targetId String
+  target   CampaignTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  attemptNumber Int
+  attemptedAt   DateTime        @default(now())
+  outcome       DispatchOutcome
+  failureReason String?
+
+  evidenceType       String?
+  evidenceExternalId String?
+  evidenceUrl        String?
+
+  @@index([targetId])
+  @@map("dispatch_attempts")
+}
+
+model Batch {
+  id         String   @id @default(uuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  plannedSize Int
+  targetIds   String[]
+  status      BatchStatus @default(RUNNING)
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([campaignId])
+  @@map("batches")
+}
+
+model CompanyMemoryEntry {
+  id         String   @id @default(uuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  companyId String
+
+  alreadyApplied   Boolean @default(false)
+  alreadyContacted Boolean @default(false)
+
+  coolingDownUntil DateTime?
+  previousReplyAt  DateTime?
+  interviewCount   Int       @default(0)
+  offerCount       Int       @default(0)
+
+  historicalSuccessScore Float?
+  futureAiNotes          String?
+
+  lastInteractionAt DateTime?
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([campaignId, companyId])
+  @@map("company_memory_entries")
+}
+
+model CampaignTimelineEntry {
+  id         String   @id @default(uuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  timestamp DateTime @default(now())
+
+  actorRole CampaignActorRole
+  actorId   String?
+
+  source String
+
+  reasonCode CampaignReasonCode?
+  reasonNote String?
+
+  previousState CampaignStatus?
+  currentState  CampaignStatus
+
+  metadata Json?
+
+  correlationId String
+
+  evidenceType       String?
+  evidenceExternalId String?
+  evidenceUrl        String?
+
+  aiExplanation String?
+
+  @@index([campaignId, timestamp])
+  @@map("campaign_timeline_entries")
+}
+
+// ---------- Execution Infrastructure ----------
+// Backs PostgresLeaseLock (DistributedLock adapter). Dormant in M2 — no application code
+// reads or writes this table until a future milestone wires the execution engine.
+
+model ExecutionLease {
+  key          String   @id
+  holderId     String
+  fencingToken Int      @default(1)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("execution_leases")
+}
+
+// Immutable, append-only execution event log (M16). The single source of truth every
+// pipeline step (Recommendations through Email Delivery) writes to; nothing ever updates
+// or deletes a row here — only INSERT and SELECT. campaignId/executionId are both nullable
+// and plain strings (no FK/relation), matching this schema's existing convention of
+// denormalized cross-bounded-context references (see Application.candidateId etc. above).
+enum ExecutionEventType {
+  CAMPAIGN_EXECUTION_STARTED
+  RECOMMENDATION_GENERATED
+  DECISION_MADE
+  EXECUTION_PLANNED
+  PIPELINE_ORCHESTRATED
+  TASK_SELECTED
+  TASK_EXECUTED
+  POLICY_EVALUATED
+  APPLICATION_PACKAGE_ASSEMBLED
+  PROVIDER_SELECTED
+  EMAIL_DELIVERY_ATTEMPTED
+  EMAIL_DELIVERY_CONFIRMED
+  EMAIL_DELIVERY_FAILED
+  REPLY_RECEIVED
+  INTERVIEW_SCHEDULED
+  // M26: additive-only values closing real observability gaps the M16-M18 vocabulary above
+  // could not express once the pipeline was actually activated end-to-end (see
+  // docs/execution-activation/ ADRs) — no existing value renamed or removed.
+  CAMPAIGN_EXECUTION_REJECTED
+  CAMPAIGN_EXECUTION_COMPLETED
+  CHECKPOINT_SAVED
+  TASK_RETRY_SCHEDULED
+  TASK_TERMINATED
+  DELIVERY_RESULT_UNKNOWN
+}
+
+enum ExecutionEventStatus {
+  SUCCESS
+  FAILURE
+}
+
+model ExecutionEvent {
+  id            String               @id @default(uuid())
+  eventType     ExecutionEventType
+  campaignId    String?
+  executionId   String?
+  // M18: correlationId (parent, one per campaign pipeline run) and traceId (child, narrows to
+  // the current unit of work) make execution chains queryable end-to-end. context is the rest
+  // of the business context (companyId, jobId, workerId, providerId, userId, recommendationId,
+  // decisionId, policyEvaluationId, geography) as one JSON blob — not independently queried in
+  // this milestone, so not worth its own columns yet.
+  correlationId String
+  traceId       String
+  summary       String
+  explanation   String
+  status        ExecutionEventStatus
+  metadata      Json                 @default("{}")
+  context       Json                 @default("{}")
+  occurredAt    DateTime
+
+  @@index([campaignId])
+  @@index([executionId])
+  @@index([occurredAt])
+  @@index([eventType])
+  @@index([correlationId])
+  @@index([traceId])
+  @@map("execution_events")
+}
+
+// ---------- Billing & Subscriptions (M27) ----------
+// The commercial plan catalogue (prices, limits, entitlements, marketing copy) is deliberately
+// NOT modeled as database rows — it lives in one code-level source of truth
+// (apps/api/src/modules/billing/domain/plan-catalogue.ts) so there is exactly one place
+// commercial rules are defined, never duplicated across DB rows / frontend / provider config.
+// PlanCode here is only the stable identifier a Subscription references. FREE is part of the
+// enum for API/catalogue consistency but is never persisted on a Subscription row — a user with
+// no Subscription row at all IS the FREE tier, by definition, requiring no provisioning (FREE
+// is permanent and needs no payment method — there is nothing to persist until a real checkout
+// completes).
+
+enum PlanCode {
+  FREE
+  PROFESSIONAL
+  PREMIUM
+  ENTERPRISE
+}
+
+// Only states with a real, justified product/Paddle-signal behind them (see the M27 engineering
+// report's state-machine section for the full transition table). TRIALING/INCOMPLETE/PENDING/
+// GRACE_PERIOD/PAUSED/DISPUTED/SUSPENDED from the milestone brief's own candidate list were
+// deliberately not added: this commercial model has no trial (FREE is the permanent try-before-
+// you-buy tier), checkout-in-progress state lives on CheckoutSession not Subscription (a paid
+// entitlement is never granted before a verified webhook, so there is no "incomplete
+// subscription"), and grace-period/dispute are tracked as timestamps on PAST_DUE/CANCELED rather
+// than as separate statuses, since no distinct policy differentiates them from those states today.
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCEL_AT_PERIOD_END
+  CANCELED
+  REFUNDED
+}
+
+// A user's real, ongoing relationship with Paddle for one plan-purchase lifecycle. userId is
+// deliberately NOT unique — cancel-then-resubscribe-later creates a new row with a new real
+// paddleSubscriptionId, preserving the old row as immutable history (same "never destroy
+// evidence" principle already applied to execution/campaign history). The "current" subscription
+// for a user is the most recent non-CANCELED/non-REFUNDED row.
+model Subscription {
+  id       String             @id @default(uuid())
+  userId   String
+  user     User               @relation(fields: [userId], references: [id])
+  planCode PlanCode
+  status   SubscriptionStatus @default(ACTIVE)
+
+  paddleSubscriptionId String @unique
+  paddleCustomerId     String
+
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+
+  cancelAtPeriodEnd  Boolean   @default(false)
+  canceledAt         DateTime?
+  cancellationReason String?
+
+  pastDueSince      DateTime?
+  gracePeriodEndsAt DateTime?
+
+  refundedAt DateTime?
+  disputedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  refunds Refund[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([paddleCustomerId])
+  @@map("subscriptions")
+}
+
+// The stable Paddle customer identity for a user — created once, reused across every checkout
+// and subscription lifecycle that user ever has. Kept separate from Subscription because a
+// customer identity outlives any single subscription (Phase 4: "creates or resolves a provider
+// customer safely").
+model BillingCustomer {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  paddleCustomerId String   @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("billing_customers")
+}
+
+enum CheckoutSessionStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+  CANCELED
+}
+
+// One row per checkout attempt — the real idempotency anchor (Phase 4: "repeated requests do
+// not create uncontrolled duplicate payment sessions") and the only place an "in-progress
+// payment" is ever tracked; no paid entitlement exists until a verified webhook links back to
+// the COMPLETED row via paddleTransactionId.
+model CheckoutSession {
+  id                  String                @id @default(uuid())
+  userId              String
+  planCode            PlanCode
+  status              CheckoutSessionStatus @default(PENDING)
+  idempotencyKey      String                @unique
+  paddleTransactionId String?               @unique
+  paddleCheckoutUrl   String?
+  createdAt           DateTime              @default(now())
+  expiresAt           DateTime
+  completedAt         DateTime?
+
+  @@index([userId])
+  @@index([status])
+  @@map("checkout_sessions")
+}
+
+enum WebhookProcessingStatus {
+  RECEIVED
+  PROCESSED
+  REJECTED
+  DEAD_LETTER
+}
+
+// Immutable receipt of every inbound Paddle webhook delivery — the real replay/duplicate
+// protection anchor (Phase 5). providerEventId is unique so a redelivered event is recognized
+// and never reprocessed. The raw payload itself is never stored (only a hash, for audit without
+// retaining unnecessary sensitive data — Phase 6's "do not log secrets or complete webhook
+// payloads" applied to persistence, not just logging).
+model WebhookEvent {
+  id              String                  @id @default(uuid())
+  provider        String                  @default("PADDLE")
+  providerEventId String                  @unique
+  eventType       String
+  status          WebhookProcessingStatus @default(RECEIVED)
+  signatureValid  Boolean
+  rawPayloadHash  String
+  failureReason   String?
+  metadata        Json                    @default("{}")
+  receivedAt      DateTime                @default(now())
+  processedAt     DateTime?
+
+  @@index([eventType])
+  @@index([status])
+  @@map("webhook_events")
+}
+
+enum BillingEventType {
+  CHECKOUT_CREATED
+  CHECKOUT_EXPIRED
+  PAYMENT_PENDING
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  SUBSCRIPTION_CREATED
+  SUBSCRIPTION_ACTIVATED
+  SUBSCRIPTION_RENEWED
+  SUBSCRIPTION_CHANGED
+  SUBSCRIPTION_PAST_DUE
+  SUBSCRIPTION_CANCEL_SCHEDULED
+  SUBSCRIPTION_CANCELED
+  SUBSCRIPTION_EXPIRED
+  REFUND_REQUESTED
+  REFUND_APPROVED
+  REFUND_REJECTED
+  REFUND_ISSUED
+  CHARGE_DISPUTED
+  CHARGEBACK_RECEIVED
+  MANUAL_ADJUSTMENT
+  ENTITLEMENT_GRANTED
+  ENTITLEMENT_REVOKED
+  WEBHOOK_RECEIVED
+  WEBHOOK_REJECTED
+}
+
+enum BillingLedgerStatus {
+  SUCCESS
+  FAILURE
+  PENDING
+}
+
+// The append-only billing ledger (Phase 6) — the single source of truth every material
+// financial operation writes to, mirroring ExecutionEvent's own immutable append-only doctrine
+// (see that model's doc comment) for the billing bounded context specifically. Never updated or
+// deleted, only inserted and read.
+model BillingLedgerEntry {
+  id             String              @id @default(uuid())
+  eventType      BillingEventType
+  userId         String?
+  customerId     String?
+  subscriptionId String?
+  checkoutId     String?
+  paymentId      String?
+  planCode       PlanCode?
+  amountCents    Int?
+  currency       String?
+  status         BillingLedgerStatus
+  reason         String?
+  actorType      String
+  actorId        String?
+  correlationId  String
+  provider       String              @default("PADDLE")
+  metadata       Json                @default("{}")
+  occurredAt     DateTime
+  processedAt    DateTime            @default(now())
+
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([eventType])
+  @@index([occurredAt])
+  @@index([correlationId])
+  @@map("billing_ledger_entries")
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  ISSUED
+}
+
+// Refunds are modeled distinctly from chargebacks/disputes (Phase 11: "must be modeled
+// separately from voluntary refunds") — a dispute/chargeback is tracked via
+// Subscription.disputedAt + a CHARGE_DISPUTED/CHARGEBACK_RECEIVED ledger entry, never through
+// this table, since a dispute is provider/cardholder-initiated, never an admin-approved refund.
+model Refund {
+  id             String       @id @default(uuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+  userId         String
+  amountCents    Int
+  currency       String
+  reason         String
+  requestedBy    String
+  approvedBy     String?
+  paddleRefundId String?
+  status         RefundStatus @default(REQUESTED)
+  createdAt      DateTime     @default(now())
+  processedAt    DateTime?
+
+  @@index([subscriptionId])
+  @@index([userId])
+  @@map("refunds")
+}
+
+// ---------- Email Infrastructure (M28) ----------
+// Provider-independent email delivery: a durable Postgres-backed queue, immutable per-message
+// event history, bounce/complaint-driven suppression, and per-provider webhook dedup — the same
+// append-only-log and DB-level-uniqueness-for-concurrency doctrines already established for
+// ExecutionEvent (M2) and the M27 billing ledger/webhook tables, applied to this bounded context.
+// Real provider credentials (Resend/SES/SendGrid/SMTP) are never stored here — they live in
+// environment variables only (ConfigService), matching every other provider integration in this
+// codebase (Paddle's own credentials are handled identically). No foreign key to Campaign exists
+// anywhere below — campaignId is a plain optional soft reference, the same loose-coupling pattern
+// ExecutionEvent's own campaignId column already uses, so this milestone never touches the
+// Campaign model (an explicit "do not modify" boundary).
+
+enum EmailPriority {
+  CRITICAL
+  HIGH
+  NORMAL
+  LOW
+}
+
+enum EmailMessageStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  DEFERRED
+  BOUNCED
+  COMPLAINED
+  FAILED
+  DEAD_LETTER
+  SUPPRESSED
+}
+
+// One row per logical email the platform ever attempted to send, regardless of which real
+// provider eventually handled it or how many attempts it took. idempotencyKey is the caller's own
+// stable identifier (e.g. a task id, or an admin/notification call's generated key) — enforced
+// unique so a retried enqueue call can never create a duplicate send.
+model EmailMessage {
+  id             String             @id @default(uuid())
+  idempotencyKey String             @unique
+  priority       EmailPriority      @default(NORMAL)
+  status         EmailMessageStatus @default(QUEUED)
+
+  senderName       String
+  senderEmail      String
+  recipientEmail   String
+  subject          String
+  plainTextBody    String?         @db.Text
+  htmlBody         String?         @db.Text
+  // EmailAttachmentSpec[] — metadata only (fileName/mimeType/sizeBytes/contentReference), never
+  // binary content, matching EmailAttachmentSpec's own domain contract.
+  attachmentsMeta  Json            @default("[]")
+  // M28.5 — the frozen, immutable delivery snapshot of exactly which CandidateDocument
+  // versions+checksums were approved for this send (array of {documentId, version,
+  // checksumSha256, fileName, mimeType, sizeBytes}). Written once at enqueue/dispatch time and
+  // never touched again — a retry (attempts increments on this same row) always resolves this
+  // exact frozen list, never a newer edited CV a candidate uploaded in the meantime. See the
+  // M28.5 report's "Immutable Delivery Snapshot" design note for why this lives here rather than
+  // in a separate snapshot table.
+  attachmentRefs   Json            @default("[]")
+  senderIdentityId String?
+  senderIdentity   SenderIdentity? @relation(fields: [senderIdentityId], references: [id])
+
+  providerId        String?
+  providerMessageId String?
+  attempts          Int       @default(0)
+  maxAttempts       Int       @default(5)
+  nextAttemptAt     DateTime?
+  lastFailureReason String?
+
+  correlationId String?
+  traceId       String?
+  campaignId    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events EmailEvent[]
+
+  @@index([status, priority, nextAttemptAt])
+  @@index([providerId, providerMessageId])
+  @@index([recipientEmail])
+  @@index([campaignId])
+  @@map("email_messages")
+}
+
+enum EmailEventType {
+  QUEUED
+  SENDING_STARTED
+  PROVIDER_SELECTED
+  PROVIDER_FAILOVER
+  SENT
+  DELIVERED
+  DEFERRED
+  BOUNCED_SOFT
+  BOUNCED_HARD
+  COMPLAINED
+  OPENED
+  CLICKED
+  RETRY_SCHEDULED
+  FAILED
+  DEAD_LETTERED
+  SUPPRESSED_SKIP
+}
+
+// Immutable, append-only per-message history — never updated or deleted, mirroring
+// ExecutionEvent's own doc comment ("never resurrect/rewrite history"). This is the real backing
+// store for "track every email: queued/sending/delivered/deferred/bounced/failed/opened/clicked."
+model EmailEvent {
+  id             String         @id @default(uuid())
+  emailMessageId String
+  emailMessage   EmailMessage   @relation(fields: [emailMessageId], references: [id])
+  eventType      EmailEventType
+  providerId     String?
+  detail         String?
+  metadata       Json           @default("{}")
+  occurredAt     DateTime       @default(now())
+
+  @@index([emailMessageId])
+  @@index([eventType])
+  @@index([occurredAt])
+  @@map("email_events")
+}
+
+enum EmailSuppressionReason {
+  HARD_BOUNCE
+  COMPLAINT
+  MANUAL
+  UNSUBSCRIBE
+}
+
+// The real, load-bearing "never send here again" list — checked before every enqueue, never
+// bypassed. A hard bounce or complaint adds a row automatically (Deliverability engine); an admin
+// can also add one manually (reason MANUAL).
+model EmailSuppressionEntry {
+  id           String                 @id @default(uuid())
+  emailAddress String                 @unique
+  reason       EmailSuppressionReason
+  source       String
+  note         String?
+  createdAt    DateTime               @default(now())
+
+  @@map("email_suppression_entries")
+}
+
+enum EmailWebhookProcessingStatus {
+  RECEIVED
+  PROCESSED
+  REJECTED
+}
+
+// Real replay/duplicate protection for inbound provider webhooks (Resend/SES/SendGrid) —
+// providerEventId is unique so a redelivered event is recognized before any bounce/complaint/open/
+// click logic runs, mirroring the M27 billing WebhookEvent table's identical doctrine for the same
+// reason, kept as its own table rather than reused so this bounded context never depends on the
+// Billing schema (per this milestone's own "do not modify Billing" boundary).
+model EmailProviderWebhookEvent {
+  id              String                       @id @default(uuid())
+  provider        String
+  providerEventId String                       @unique
+  eventType       String
+  signatureValid  Boolean
+  rawPayloadHash  String
+  status          EmailWebhookProcessingStatus @default(RECEIVED)
+  failureReason   String?
+  receivedAt      DateTime                     @default(now())
+  processedAt     DateTime?
+
+  @@index([provider, eventType])
+  @@index([status])
+  @@map("email_provider_webhook_events")
+}
+
+// Real-time per-provider circuit-breaker state — persisted (not in-memory) so it survives a
+// restart and multiple API instances observe the same provider health, feeding the Provider
+// Manager's automatic-failover decision and the Admin Operations "provider status" view.
+model EmailProviderHealthState {
+  providerId          String    @id
+  consecutiveFailures Int       @default(0)
+  lastFailureAt       DateTime?
+  lastSuccessAt       DateTime?
+  circuitOpenUntil    DateTime?
+  updatedAt           DateTime  @updatedAt
+
+  @@map("email_provider_health_states")
+}
+
+// ---------- Attachment Security & Sender Identity (M28.5) ----------
+// Secure resolution of candidate documents (CV, motivation letter, supporting documents) into
+// real email attachments, plus a verified sender-identity/domain-readiness gate before any real
+// external send with attachments. Every table below is additive — no existing table (User,
+// UserProfile, Campaign, Application, Billing, or any pre-M28.5 EmailMessage column) had a
+// column removed or repurposed.
+
+enum DocumentType {
+  CV
+  MOTIVATION_LETTER
+  SUPPORTING_DOCUMENT
+}
+
+enum DocumentScanStatus {
+  NOT_SCANNED
+  CLEAN
+  REJECTED
+  SCAN_FAILED
+}
+
+// One row per uploaded candidate document. Real bytes live in object storage (MinIO/S3) — this
+// row is the authoritative metadata + integrity record the AttachmentResolver checks before ever
+// returning content to a caller. A new upload of the same documentType never overwrites a prior
+// row in place — it creates a new row (`version` incremented from the prior active row) and the
+// prior row's `isActive` flips false, preserving real version history so a retry can never
+// silently pick up a newer edited file than the one a delivery snapshot actually approved.
+model CandidateDocument {
+  id           String       @id @default(uuid())
+  ownerUserId  String
+  owner        User         @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  documentType DocumentType
+  version      Int          @default(1)
+  isActive     Boolean      @default(true)
+
+  storageProvider  String
+  storageBucket    String
+  storageObjectKey String @unique
+
+  originalFileName String
+  safeFileName     String
+  mimeType         String
+  sizeBytes        Int
+  checksumSha256   String
+
+  scanStatus        DocumentScanStatus @default(NOT_SCANNED)
+  scanFailureReason String?
+  scannedAt         DateTime?
+
+  // Null = authorized for any of this owner's applications; set = scoped to one specific
+  // application submission. Plain string, no relation — matches EmailMessage.campaignId's own
+  // established loose-coupling precedent for the Application/Campaign bounded context, so this
+  // milestone never has to touch the Campaign/Application schema.
+  scopeApplicationId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  // NOTE: a real DB-level partial unique index — UNIQUE (ownerUserId, documentType) WHERE
+  // isActive = true — exists on this table (see migration
+  // 20260801130000_m28_5_candidate_document_active_version_uniqueness). Prisma's schema
+  // language has no syntax for a WHERE-qualified unique constraint, so it is not representable
+  // above; it is the real backstop proven by a Postgres concurrency test
+  // (candidate-document-version.concurrency.spec.ts) against the exact race a plain
+  // @@index/@@unique here cannot prevent.
+
+  @@index([ownerUserId, documentType, isActive])
+  @@index([scopeApplicationId])
+  @@map("candidate_documents")
+}
+
+enum SenderVerificationStatus {
+  UNCONFIGURED
+  PENDING
+  VERIFIED
+  FAILED
+  SUSPENDED
+}
+
+// A verified, platform-managed sending identity — the sole source of truth for which
+// (displayName, emailAddress, domain) combinations are authorized and domain-verified per
+// provider. Arbitrary user-supplied From addresses are never allowed (M28.5 Phase 11) — every
+// real send with attachments resolves one of these rows server-side; a client never supplies a
+// From address directly.
+model SenderIdentity {
+  id                  String  @id @default(uuid())
+  displayName         String
+  emailAddress        String
+  domain              String
+  providerId          String
+  providerIdentityRef String?
+
+  verificationStatus SenderVerificationStatus @default(UNCONFIGURED)
+  dkimVerified       Boolean                  @default(false)
+  spfReady           Boolean                  @default(false)
+  dmarcReady         Boolean                  @default(false)
+
+  replyToEmailAddress String?
+  allowedRegions      String[] @default([])
+  isActive            Boolean  @default(true)
+
+  failureReason String?
+  verifiedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  emailMessages EmailMessage[]
+
+  @@unique([emailAddress, providerId])
+  @@index([isActive])
+  @@map("sender_identities")
+}
+
+enum EmailSecurityAuditEventType {
+  ATTACHMENT_REFERENCE_SELECTED
+  ATTACHMENT_RESOLUTION_STARTED
+  ATTACHMENT_RESOLVED
+  ATTACHMENT_REJECTED
+  ATTACHMENT_SCAN_STARTED
+  ATTACHMENT_SCAN_PASSED
+  ATTACHMENT_SCAN_FAILED
+  DELIVERY_SNAPSHOT_CREATED
+  SENDER_IDENTITY_SELECTED
+  SENDER_IDENTITY_REJECTED
+  DOMAIN_READINESS_PASSED
+  DOMAIN_READINESS_FAILED
+  EMAIL_WITH_ATTACHMENTS_QUEUED
+  EMAIL_WITH_ATTACHMENTS_SENT
+  // M28.6 — connected-mailbox lifecycle and send events (see connected-mailbox module).
+  MAILBOX_CONNECTION_STARTED
+  MAILBOX_CONNECTION_COMPLETED
+  MAILBOX_CONNECTION_FAILED
+  MAILBOX_IDENTITY_VERIFIED
+  MAILBOX_SCOPE_REJECTED
+  MAILBOX_TOKEN_REFRESHED
+  MAILBOX_REAUTHORIZATION_REQUIRED
+  MAILBOX_DISCONNECTED
+  MAILBOX_REVOKED
+  MAILBOX_SYSTEM_SUSPENDED
+  CONNECTED_SEND_RESERVED
+  CONNECTED_SEND_STARTED
+  CONNECTED_SEND_ACCEPTED
+  CONNECTED_SEND_FAILED
+  CONNECTED_SEND_RATE_LIMITED
+  CONNECTED_SEND_BLOCKED
+  CONNECTED_SEND_CANCELLED
+  PLATFORM_FALLBACK_REJECTED
+  // M29 — Inbox Intelligence: consent, watch lifecycle, correlation, classification, transition
+  // proposals, campaign pause, and reply-draft events (see inbox-intelligence module).
+  INBOX_CONSENT_STARTED
+  INBOX_CONSENT_GRANTED
+  INBOX_CONSENT_REJECTED
+  INBOX_CONSENT_REVOKED
+  INBOX_WATCH_REGISTERED
+  INBOX_WATCH_RENEWED
+  INBOX_WATCH_FAILED
+  INBOX_CHANGE_RECEIVED
+  REPLY_CORRELATION_MATCHED
+  REPLY_CORRELATION_AMBIGUOUS
+  REPLY_REJECTED_AS_UNRELATED
+  REPLY_CLASSIFIED
+  REPLY_CLASSIFICATION_CORRECTED
+  REPLY_FACTS_EXTRACTED
+  REPLY_FACTS_CORRECTED
+  APPLICATION_TRANSITION_PROPOSED
+  APPLICATION_TRANSITION_CONFIRMED
+  APPLICATION_TRANSITION_REJECTED
+  CAMPAIGN_FOLLOWUP_PAUSED
+  REPLY_DRAFT_CREATED
+  REPLY_DRAFT_EDITED
+  REPLY_DRAFT_APPROVED
+  REPLY_SENT_BY_USER
+  INBOX_REAUTHORIZATION_REQUIRED
+}
+
+// Immutable, append-only audit trail for every attachment/sender/domain-readiness/connected-
+// mailbox decision — deliberately independent of EmailMessage, since these decisions happen
+// across three different dispatch paths (live synchronous campaign dispatch, the M28 queue, and
+// M28.6 connected-mailbox sending), none of which always creates an EmailMessage row. This table
+// is the one place all three funnel through. Never records file contents or token values
+// (Non-Negotiable Principles #9/#12, M28.6 Phase 18).
+model EmailSecurityAuditEvent {
+  id                 String                      @id @default(uuid())
+  eventType          EmailSecurityAuditEventType
+  documentId         String?
+  emailMessageId     String?
+  senderIdentityId   String?
+  connectedMailboxId String?
+  // M29 — lets a reply's full audit history (Phase 17: "each reply detail must show... audit
+  // history") be queried directly, without joining through applicationId (which a still-AMBIGUOUS
+  // or UNRELATED message may not even have).
+  inboxMessageId     String?
+  userId             String?
+  applicationId      String?
+  campaignId         String?
+  detail             String?
+  metadata           Json                        @default("{}")
+  occurredAt         DateTime                    @default(now())
+
+  @@index([eventType])
+  @@index([documentId])
+  @@index([emailMessageId])
+  @@index([connectedMailboxId])
+  @@index([inboxMessageId])
+  @@index([userId])
+  @@index([occurredAt])
+  @@map("email_security_audit_events")
+}
+
+// ---------- Connected Mailbox — Gmail/Outlook OAuth Sending (M28.6) ----------
+// Candidate application emails now send from the candidate's own connected Gmail/Outlook mailbox
+// (see the M28.6 report's "Non-Negotiable Product Decision"), never silently from the platform
+// sender. Every table below is additive; nothing here touches Billing, Campaign, or any
+// pre-M28.6 email-infrastructure table.
+
+enum ConnectedMailboxProvider {
+  GOOGLE_GMAIL
+  MICROSOFT_OUTLOOK
+}
+
+// Every state here is justified by real, distinct behavior this application must react to
+// differently (Phase 2: "use only states justified by real behavior") — never a raw provider
+// status string passed through as domain truth.
+enum ConnectedMailboxStatus {
+  PENDING // OAuth transaction started, not yet completed
+  CONNECTED // real, verified, currently usable
+  REAUTHORIZATION_REQUIRED // a refresh attempt failed in a way that means the user must re-consent
+  REVOKED // the provider itself reported the grant is gone
+  USER_DISABLED // the user disconnected it themselves
+  SYSTEM_SUSPENDED // this application paused it for safety (abuse/rate/reputation)
+  FAILED // the connection attempt itself never completed successfully
+}
+
+enum ConnectedMailboxFailureCategory {
+  AUTHENTICATION
+  SCOPE_REJECTED
+  RATE_LIMITED
+  PROVIDER_UNAVAILABLE
+  REVOKED
+  UNKNOWN
+}
+
+// The one provider-independent reference for "this user's connected mailbox." Real tokens are
+// never stored in plaintext — encryptedRefreshToken/encryptedAccessToken are opaque, versioned,
+// envelope-encrypted ciphertext blobs only the mailbox-integration application layer ever
+// decrypts (see MailboxTokenVaultService's own doc comment). isActive marks the single mailbox
+// currently used for sending (Phase 7's "one active connected sending mailbox per user" initial
+// release recommendation) — enforced at the DB level by a real partial unique index below,
+// matching the M28.5-established "the DB constraint is the real backstop under a genuine race"
+// doctrine, not merely an application-level check.
+model ConnectedMailbox {
+  id                String                   @id @default(uuid())
+  userId            String
+  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          ConnectedMailboxProvider
+  providerAccountId String
+  emailAddress      String
+  displayName       String?
+  isActive          Boolean                  @default(true)
+  status            ConnectedMailboxStatus   @default(PENDING)
+  grantedScopes     String[]                 @default([])
+
+  tokenEncryptionVersion Int?
+  encryptedRefreshToken  String?
+  encryptedAccessToken   String?
+  accessTokenExpiresAt   DateTime?
+  hasRefreshToken        Boolean   @default(false)
+
+  connectedAt          DateTime?
+  lastRefreshedAt      DateTime?
+  lastSuccessfulSendAt DateTime?
+  lastFailureAt        DateTime?
+  failureCategory      ConnectedMailboxFailureCategory?
+  failureReason        String?
+
+  reauthorizationRequired Boolean @default(false)
+  userDisabled            Boolean @default(false)
+  systemSuspended         Boolean @default(false)
+  suspensionReason        String?
+
+  dailySendCount         Int       @default(0)
+  dailySendCountResetAt  DateTime?
+  rollingSendCount       Int       @default(0)
+  rollingWindowStartedAt DateTime?
+  providerDailyLimit     Int?
+
+  consentVersion    String?
+  consentAcceptedAt DateTime?
+
+  // ---------- M29 — Inbox Intelligence: a SEPARATE capability layer, additive only ----------
+  // Deliberately not merged into `status`/`grantedScopes`/`consentVersion` above (Phase 2's own
+  // "do not merge send consent and inbox consent into one ambiguous permission"). A mailbox can be
+  // fully CONNECTED for sending while `inboxCapabilityStatus` stays NOT_REQUESTED indefinitely —
+  // mailbox connection status alone is never treated as proof inbox reading is authorized.
+  inboxCapabilityStatus        InboxCapabilityStatus            @default(NOT_REQUESTED)
+  inboxGrantedScopes           String[]                         @default([])
+  inboxConsentVersion          String?
+  inboxConsentAcceptedAt       DateTime?
+  inboxRevokedAt               DateTime?
+  lastSuccessfulInboxAccessAt  DateTime?
+  inboxReauthorizationRequired Boolean                          @default(false)
+  inboxUserDisabled            Boolean                          @default(false)
+  inboxSystemSuspended         Boolean                          @default(false)
+  inboxSuspensionReason        String?
+  inboxFailureCategory         ConnectedMailboxFailureCategory?
+  inboxFailureReason           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sendAttempts  ConnectedMailboxSendAttempt[]
+  inboxWatch    InboxWatch?
+  inboxMessages InboxMessage[]
+  replyDrafts   ReplyDraft[]
+  // NOTE: a real DB-level partial unique index — UNIQUE (userId) WHERE isActive = true — exists
+  // on this table (added by hand in the M28.6 migration's own .sql file). Prisma's schema
+  // language has no syntax for a WHERE-qualified unique constraint; this is the real backstop
+  // against the exact same class of concurrent-write race the M28.5 candidate-document
+  // versioning bug exposed, applied proactively here rather than found by a failing test.
+
+  @@unique([userId, provider, providerAccountId])
+  @@index([userId, status])
+  @@index([userId, inboxCapabilityStatus])
+  @@map("connected_mailboxes")
+}
+
+enum OAuthTransactionStatus {
+  PENDING
+  CONSUMED
+  EXPIRED
+  FAILED
+}
+
+// M29 Phase 2 — which real capability an OAuth attempt is requesting; stored on the transaction
+// itself (not inferred) so `MailboxConnectionService`/`InboxConsentService` never conflate "the
+// user re-authorized sending" with "the user granted inbox reading" — two different real consent
+// events even when, per Google's incremental-authorization model, they end up sharing one token.
+enum OAuthCapabilityPurpose {
+  SEND_APPLICATION_EMAIL
+  READ_APPLICATION_REPLIES
+}
+
+// A short-lived, single-use, server-side record of one in-flight OAuth authorization attempt —
+// the real CSRF/replay defense (Phase 5). `state` is cryptographically random and unique;
+// `codeVerifier` is the real PKCE verifier; the callback looks up the transaction by `state`
+// alone (a bearer JWT is not available on a top-level browser redirect from Google/Microsoft) and
+// derives the acting user from `userId`, recorded here at start time while the user WAS
+// authenticated — never from any client-supplied claim on the callback itself.
+model OAuthTransaction {
+  id           String                   @id @default(uuid())
+  state        String                   @unique
+  userId       String
+  user         User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     ConnectedMailboxProvider
+  // M29 — defaults to the M28.6-era meaning (send) so no backfill/migration of existing rows is
+  // needed; every NEW transaction (send or inbox) sets this explicitly.
+  capability   OAuthCapabilityPurpose   @default(SEND_APPLICATION_EMAIL)
+  codeVerifier String
+  redirectUri  String
+  status       OAuthTransactionStatus   @default(PENDING)
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime                 @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("oauth_transactions")
+}
+
+enum ConnectedMailboxSendStatus {
+  PENDING
+  SENT
+  FAILED
+  BLOCKED
+}
+
+// M28.6 Phase 12 — the immutable delivery snapshot for the connected-mailbox send path,
+// deliberately a separate table from EmailMessage (M28): EmailMessage.senderIdentityId refers to
+// the *platform* SenderIdentity table, which would be semantically wrong for a candidate's own
+// mailbox, and Phase 11 explicitly requires mailbox credentials and platform-provider credentials
+// to stay isolated even at the schema level. attachmentRefs is written once and never touched
+// again, including across retries of the same row (idempotencyKey @unique).
+model ConnectedMailboxSendAttempt {
+  id                  String                   @id @default(uuid())
+  idempotencyKey      String                   @unique
+  connectedMailboxId  String
+  connectedMailbox    ConnectedMailbox         @relation(fields: [connectedMailboxId], references: [id])
+  verifiedSenderEmail String
+  provider            ConnectedMailboxProvider
+  providerAccountId   String
+
+  applicationId      String?
+  campaignId         String?
+  recipientEmail     String
+  subject            String
+  bodyChecksumSha256 String
+  attachmentRefs     Json    @default("[]")
+
+  status              ConnectedMailboxSendStatus @default(PENDING)
+  providerMessageId   String?
+  providerThreadId    String?
+  // M29 — the real RFC 5322 Message-ID this sent message carries (Gmail: generated by us and
+  // embedded in the raw MIME; Outlook: Graph's own internetMessageId). The strong signal
+  // ReplyCorrelationService matches an incoming reply's In-Reply-To/References headers against.
+  rfcMessageId        String?
+  attempts            Int                        @default(0)
+  lastFailureCategory String?
+  lastFailureReason   String?
+
+  correlationId String?
+  traceId       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([connectedMailboxId])
+  @@index([applicationId])
+  @@index([campaignId])
+  @@index([connectedMailboxId, providerThreadId])
+  @@index([connectedMailboxId, rfcMessageId])
+  @@map("connected_mailbox_send_attempts")
+}
+
+// ---------- Inbox Intelligence — Reply Detection, Correlation & Classification (M29) ----------
+// A SEPARATE consent/capability layer on top of the same ConnectedMailbox row (Phase 2's own
+// "do not merge send consent and inbox consent into one ambiguous permission"). Every table below
+// is additive; nothing here changes M28.6's own send-capability fields, routing, or tables.
+
+enum InboxCapabilityStatus {
+  NOT_REQUESTED // default — most mailboxes never upgrade to inbox reading
+  PENDING // OAuth upgrade transaction started, not yet completed
+  ACTIVE // real, verified, currently authorized to read matched replies
+  REAUTHORIZATION_REQUIRED // a refresh/read attempt failed in a way that means re-consent is needed
+  REVOKED // the provider itself reported the grant is gone
+  USER_DISABLED // the user disabled inbox reading themselves, sending may continue
+  SYSTEM_SUSPENDED // this application paused inbox processing for safety
+  FAILED // the upgrade attempt itself never completed successfully
+}
+
+enum InboxWatchStatus {
+  ACTIVE
+  EXPIRED
+  STOPPED
+  FAILED
+}
+
+// M29 Phase 5 — one real provider-native change-notification registration per inbox-enabled
+// mailbox (Gmail: `users.watch` against Cloud Pub/Sub; Graph: a `subscription` resource). A
+// mailbox has at most one InboxWatch (1:1, enforced by @unique) — matching ConnectedMailbox's own
+// "one active thing per mailbox" shape. `historyCursor` is what makes recovery-after-gap possible:
+// Gmail's own `historyId`, or Graph's own delta/skip token, persisted so a missed-notification
+// recovery pass knows exactly where it last left off rather than re-scanning the whole mailbox.
+model InboxWatch {
+  id                      String                   @id @default(uuid())
+  connectedMailboxId      String                   @unique
+  connectedMailbox        ConnectedMailbox         @relation(fields: [connectedMailboxId], references: [id], onDelete: Cascade)
+  provider                ConnectedMailboxProvider
+  status                  InboxWatchStatus         @default(ACTIVE)
+  providerWatchId         String? // Graph subscription id; null for Gmail (no separate watch id)
+  historyCursor           String? // Gmail historyId, or Graph delta/skip token
+  expiresAt               DateTime?
+  lastRenewedAt           DateTime?
+  lastNotificationAt      DateTime?
+  consecutiveFailureCount Int                      @default(0)
+  lastFailureReason       String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+
+  @@index([status, expiresAt])
+  @@map("inbox_watches")
+}
+
+enum CorrelationStatus {
+  MATCHED
+  AMBIGUOUS
+  UNRELATED
+  DUPLICATE
+  UNSAFE_TO_PROCESS
+}
+
+// M29 Phase 9 — the one approved recruitment reply taxonomy. Every value here is justified by a
+// real, distinct downstream behavior (a different rule/next-action/notification), matching this
+// codebase's own "no state without real behavior" discipline (see ConnectedMailboxStatus's
+// identical doc-comment precedent).
+enum ReplyPrimaryCategory {
+  INTERVIEW_INVITATION
+  ACCEPTANCE_OR_OFFER
+  REJECTION
+  DOCUMENT_REQUEST
+  INFORMATION_REQUEST
+  AVAILABILITY_REQUEST
+  ASSESSMENT_OR_TEST_INVITATION
+  APPLICATION_RECEIVED_CONFIRMATION
+  APPLICATION_UNDER_REVIEW
+  WAITLIST_OR_DELAY
+  REFERRAL_TO_OTHER_POSITION
+  WITHDRAWAL_CONFIRMATION
+  AUTOMATIC_REPLY
+  OUT_OF_OFFICE
+  DELIVERY_FAILURE
+  SPAM_OR_UNRELATED
+  NEEDS_MANUAL_REVIEW
+  UNKNOWN
+}
+
+enum ReplySecondaryLabel {
+  POSITIVE
+  NEGATIVE
+  NEUTRAL
+  ACTION_REQUIRED
+  DEADLINE_PRESENT
+  INTERVIEW_DATE_PRESENT
+  DOCUMENTS_REQUIRED
+  HUMAN_REPLY
+  AUTOMATED_REPLY
+}
+
+enum ClassificationSource {
+  RULE_ENGINE
+  AI
+  USER_CORRECTED
+}
+
+enum InboxMessageReviewStatus {
+  PENDING_REVIEW
+  CONFIRMED
+  REJECTED
+  AUTO_ACCEPTED
+  UNRELATED_CONFIRMED
+}
+
+// M29 Phase 7/8 — the one durable record of a message this application actually considered.
+// Deliberately does NOT store the full raw body (per this milestone's own retention decision —
+// sanitized excerpt only, never full body); `contentHashSha256` still lets a duplicate/tamper
+// check happen without keeping the content itself. `@@unique([connectedMailboxId,
+// providerMessageId])` is the real idempotency backstop for provider-notification replay (Phase
+// 5/21: "notification replay is idempotent") — a redelivered push notification for the same
+// message can never create a second row.
+model InboxMessage {
+  id                 String           @id @default(uuid())
+  connectedMailboxId String
+  connectedMailbox   ConnectedMailbox @relation(fields: [connectedMailboxId], references: [id], onDelete: Cascade)
+  providerMessageId  String
+  providerThreadId   String?
+  rfcMessageId       String?
+  inReplyTo          String?
+  referencesHeaders  String[]         @default([])
+  fromAddress        String
+  toAddress          String
+  subject            String
+  receivedAt         DateTime
+
+  correlationStatus       CorrelationStatus
+  correlationConfidence   Float?
+  correlationEvidence     Json              @default("{}")
+  correlatedApplicationId String?
+  correlatedCampaignId    String?
+
+  contentHashSha256 String
+  sanitizedExcerpt  String?
+  detectedLanguage  String?
+
+  primaryCategory          ReplyPrimaryCategory?
+  secondaryLabels          ReplySecondaryLabel[] @default([])
+  classificationConfidence Float?
+  classificationEvidence   Json?
+  classificationSource     ClassificationSource?
+  classificationRuleIds    String[]              @default([])
+  extractedFacts           Json?
+
+  reviewStatus InboxMessageReviewStatus @default(PENDING_REVIEW)
+  processedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  corrections         InboxMessageCorrection[]
+  transitionProposals ApplicationTransitionProposal[]
+  replyDrafts         ReplyDraft[]
+
+  @@unique([connectedMailboxId, providerMessageId])
+  @@index([connectedMailboxId, correlationStatus])
+  @@index([connectedMailboxId, reviewStatus])
+  @@index([correlatedApplicationId])
+  @@index([contentHashSha256])
+  @@map("inbox_messages")
+}
+
+enum InboxMessageCorrectionType {
+  CLASSIFICATION
+  EXTRACTED_FACTS
+  CORRELATION
+  UNRELATED_MARK
+}
+
+// M29 Phase 19 — "never overwrite the historical automated result": a correction is always a NEW
+// row referencing the original, never an in-place mutation of InboxMessage's own classification
+// fields (those stay exactly as the rule engine/AI first produced them).
+model InboxMessageCorrection {
+  id                String                     @id @default(uuid())
+  inboxMessageId    String
+  inboxMessage      InboxMessage               @relation(fields: [inboxMessageId], references: [id], onDelete: Cascade)
+  correctionType    InboxMessageCorrectionType
+  originalValue     Json
+  correctedValue    Json
+  correctedByUserId String
+  reason            String?
+  createdAt         DateTime                   @default(now())
+
+  @@index([inboxMessageId])
+  @@map("inbox_message_corrections")
+}
+
+enum ProposedApplicationAction {
+  REPLY_RECEIVED
+  INTERVIEW_INVITED
+  DOCUMENTS_REQUESTED
+  INFORMATION_REQUESTED
+  ASSESSMENT_INVITED
+  UNDER_REVIEW
+  REJECTED
+  OFFER_RECEIVED
+  WAITING
+}
+
+enum ApplicationTransitionProposalStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+// M29 Phase 14 — "do not directly mutate status tables from inbox code": every proposed lifecycle
+// change is recorded here FIRST; only a real, explicit user confirmation (or, for the narrow
+// deterministic-delivery-failure case, an automated confirm — see ReplyDecisionPolicy) causes the
+// application module's own existing transition command/handler to actually run.
+model ApplicationTransitionProposal {
+  id                String                              @id @default(uuid())
+  inboxMessageId    String
+  inboxMessage      InboxMessage                        @relation(fields: [inboxMessageId], references: [id], onDelete: Cascade)
+  applicationId     String
+  proposedAction    ProposedApplicationAction
+  classification    ReplyPrimaryCategory?
+  confidence        Float?
+  evidence          Json?
+  actorType         String                              @default("SYSTEM")
+  status            ApplicationTransitionProposalStatus @default(PENDING)
+  confirmedByUserId String?
+  confirmedAt       DateTime?
+  rejectedByUserId  String?
+  rejectedAt        DateTime?
+  correlationId     String?
+  createdAt         DateTime                            @default(now())
+  updatedAt         DateTime                            @updatedAt
+
+  @@index([applicationId])
+  @@index([inboxMessageId])
+  @@index([status])
+  @@map("application_transition_proposals")
+}
+
+enum ReplyDraftType {
+  INTERVIEW_ACCEPTANCE
+  REQUEST_ALTERNATIVE_TIME
+  DOCUMENT_SUBMISSION_ACKNOWLEDGMENT
+  INFORMATION_RESPONSE
+  POLITE_FOLLOWUP
+  OFFER_ACKNOWLEDGMENT
+  REJECTION_ACKNOWLEDGMENT
+}
+
+enum ReplyDraftStatus {
+  DRAFT
+  EDITED
+  APPROVED
+  SENT
+  DISCARDED
+}
+
+// M29 Phase 16 — "never send automatically... require explicit user review and click-to-send."
+// `status` only ever reaches SENT through the real `ConnectedMailboxSendService` path, triggered
+// by an explicit user approval action, never by any automated code path.
+model ReplyDraft {
+  id                                String           @id @default(uuid())
+  inboxMessageId                    String
+  inboxMessage                      InboxMessage     @relation(fields: [inboxMessageId], references: [id], onDelete: Cascade)
+  applicationId                     String
+  connectedMailboxId                String
+  connectedMailbox                  ConnectedMailbox @relation(fields: [connectedMailboxId], references: [id], onDelete: Cascade)
+  draftType                         ReplyDraftType
+  subject                           String
+  bodyText                          String
+  placeholders                      Json             @default("[]")
+  status                            ReplyDraftStatus @default(DRAFT)
+  approvedByUserId                  String?
+  approvedAt                        DateTime?
+  sentConnectedMailboxSendAttemptId String?
+  createdAt                         DateTime         @default(now())
+  updatedAt                         DateTime         @updatedAt
+
+  @@index([inboxMessageId])
+  @@index([applicationId])
+  @@index([connectedMailboxId])
+  @@map("reply_drafts")
+}
+
+enum NotificationKind {
+  INTERVIEW_INVITATION
+  OFFER_OR_ACCEPTANCE
+  REJECTION
+  DOCUMENTS_REQUESTED
+  DEADLINE_APPROACHING
+  ASSESSMENT_INVITATION
+  INBOX_CONNECTION_FAILURE
+  REAUTHORIZATION_REQUIRED
+  AMBIGUOUS_REPLY_REVIEW
+}
+
+// M29 Phase 18 — the first real, durable, backend-sourced notification concept in this codebase
+// (Phase 1 audit finding: previously only a transient, session-local frontend toast store
+// existed). `dedupeKey` + the unique constraint below is the real dedup backstop — "support
+// notification deduplication" enforced at the DB level, not merely by application-code discipline.
+model Notification {
+  id                    String           @id @default(uuid())
+  userId                String
+  user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind                  NotificationKind
+  relatedInboxMessageId String?
+  relatedApplicationId  String?
+  title                 String
+  body                  String
+  dedupeKey             String
+  readAt                DateTime?
+  createdAt             DateTime         @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+// M29 Phase 18 — deliberately separate from inbox consent (Phase 18's own "store notification
+// preference separately from inbox consent"): a user can be fully inbox-connected and still turn
+// off, say, deadline-approaching reminders, without that affecting whether inbox reading itself
+// is authorized.
+model NotificationPreference {
+  id                           String   @id @default(uuid())
+  userId                       String   @unique
+  user                         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interviewInvitationEnabled   Boolean  @default(true)
+  offerOrAcceptanceEnabled     Boolean  @default(true)
+  rejectionEnabled             Boolean  @default(true)
+  documentsRequestedEnabled    Boolean  @default(true)
+  deadlineApproachingEnabled   Boolean  @default(true)
+  assessmentInvitationEnabled  Boolean  @default(true)
+  inboxConnectionIssuesEnabled Boolean  @default(true)
+  ambiguousReplyReviewEnabled  Boolean  @default(true)
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  @@map("notification_preferences")
+}
