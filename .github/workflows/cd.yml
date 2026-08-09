@@ -18,6 +18,22 @@ name: CD
 # approval is never permitted (Non-Negotiable Principle #11 / this workflow's own
 # `environment: production` gate, which GitHub enforces as a required reviewer approval — configured
 # in repo Settings once Production is a real, approved target, which it is not this milestone).
+#
+# REAL EXECUTION FIX (M31.2 Render activation pass): the API and Web images were originally built
+# sequentially in ONE job. That failed live, twice — once before any mitigation, once again after
+# adding a disk-cleanup step (which itself ran successfully, ruling out plain leftover-toolchain
+# disk usage as the sole cause). Root cause could not be fully confirmed from raw logs (GitHub's
+# Actions log API returns 403 without authenticated access even for public repos — not available
+# in this execution environment), but the API image build+push succeeded every time and the Web
+# build+push failed every time, immediately after — consistent with cumulative resource pressure
+# (disk and/or buildx's own attestation/provenance generation, a real, known extra cost during
+# PUSH specifically that a plain local `docker build` — used to rule out a code-level defect —
+# never exercises) from running 2 large sequential multi-stage builds on one shared runner. Split
+# into 2 independent parallel jobs below: each gets its own full, fresh runner, which removes the
+# "did image 1 leave enough room for image 2" question entirely rather than continuing to guess at
+# mitigations for a job-sharing problem. `provenance: false`/`sbom: false` also set on both — this
+# repo does not currently consume that attestation data, and generating it is a real, avoidable
+# resource cost during push.
 
 on:
   push:
@@ -29,7 +45,7 @@ env:
   IMAGE_OWNER: ${{ github.repository_owner }}
 
 jobs:
-  build-and-push:
+  build-and-push-api:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,39 +53,16 @@ jobs:
     outputs:
       image-tag: ${{ steps.meta.outputs.tag }}
       api-image: ${{ steps.meta.outputs.api-image }}
-      web-image: ${{ steps.meta.outputs.web-image }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # full history — needed for a real git-commit-based tag
-      # Real, confirmed root cause of this pipeline's first live failure (M31.2 execution pass):
-      # building 2 large multi-stage monorepo Docker images (API + Web, each with their own
-      # node_modules/Next.js build output) sequentially on ubuntu-latest's default ~14GB free disk
-      # is a well-documented way to exhaust it — the API image (built first) pushed successfully;
-      # the Web image's build step failed immediately after. This step removes GitHub's own
-      # preinstalled-but-unused toolchains (Android SDK, .NET, GHC, CodeQL bundles — none of which
-      # this Node/pnpm monorepo ever uses) to reclaim real disk space before either image builds,
-      # the standard mitigation for this exact failure mode.
-      - name: Free disk space on the runner
-        run: |
-          sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
-          docker system prune -af || true
-          df -h
       - id: meta
         run: |
           echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "api-image=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/german-job-engine-api" >> "$GITHUB_OUTPUT"
-          echo "web-image=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/german-job-engine-web" >> "$GITHUB_OUTPUT"
           echo "GIT_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "BUILD_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
-          # Real Staging URL (render.yaml's own deterministic gje-staging-api.onrender.com name) —
-          # baked into the Web image at build time (real fix, this pass): NEXT_PUBLIC_API_URL is a
-          # Next.js NEXT_PUBLIC_* var, inlined into the client bundle at `next build` time, NOT read
-          # from the environment at container runtime — a Render runtime envVar of the same name
-          # would silently have zero effect (confirmed by reading apps/web/Dockerfile's own ARG/ENV
-          # sequence). Without this, the deployed Staging frontend would have called
-          # http://localhost:4000 (api-client.ts's own dev fallback) instead of the real Staging API.
-          echo "STAGING_API_URL=https://gje-staging-api.onrender.com" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -89,34 +82,67 @@ jobs:
           context: .
           file: apps/api/Dockerfile
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ steps.meta.outputs.api-image }}:${{ steps.meta.outputs.tag }}
             ${{ steps.meta.outputs.api-image }}:latest
           build-args: |
             GIT_COMMIT=${{ env.GIT_COMMIT }}
             BUILD_TIMESTAMP=${{ env.BUILD_TIMESTAMP }}
+
+  build-and-push-web:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      web-image: ${{ steps.meta.outputs.web-image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: meta
+        run: |
+          echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "web-image=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/german-job-engine-web" >> "$GITHUB_OUTPUT"
+          # Real Staging URL (render.yaml's own deterministic gje-staging-api.onrender.com name) —
+          # baked into the Web image at build time: NEXT_PUBLIC_API_URL is a Next.js NEXT_PUBLIC_*
+          # var, inlined into the client bundle at `next build` time, NOT read from the environment
+          # at container runtime — a Render runtime envVar of the same name would silently have zero
+          # effect (confirmed by reading apps/web/Dockerfile's own ARG/ENV sequence). Without this,
+          # the deployed Staging frontend would have called http://localhost:4000 (api-client.ts's
+          # own dev fallback) instead of the real Staging API.
+          echo "STAGING_API_URL=https://gje-staging-api.onrender.com" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push Web image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/web/Dockerfile
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ steps.meta.outputs.web-image }}:${{ steps.meta.outputs.tag }}
             ${{ steps.meta.outputs.web-image }}:latest
           # env.STAGING_API_URL is set 2 steps above via `>> "$GITHUB_ENV"` (the "id: meta" step,
           # same job) — a real, standard, working GitHub Actions idiom; some static YAML linters
-          # (including this repo's own editor tooling) flag `env.X` context access as "might be
-          # invalid" when X was set dynamically via shell rather than a static top-level `env:`
-          # block, since they cannot trace the shell `echo` — a known false positive for this
-          # pattern, not a real defect (job-scoped env vars set via $GITHUB_ENV ARE available to
-          # every later step in that same job, per GitHub's own documented behavior).
+          # flag `env.X` context access as "might be invalid" when X was set dynamically via shell
+          # rather than a static top-level `env:` block, since they cannot trace the shell `echo` —
+          # a known false positive for this pattern, not a real defect.
           build-args: |
             NEXT_PUBLIC_API_URL=${{ env.STAGING_API_URL }}
 
   deploy-staging:
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: [build-and-push-api, build-and-push-web]
     environment: staging # a real GitHub Environment — its own secrets, its own protection rules
     steps:
       # Render Deploy Hooks are plain webhook URLs (POST, no body needed) generated per-service in
@@ -149,7 +175,7 @@ jobs:
 
   staging-verification:
     runs-on: ubuntu-latest
-    needs: [build-and-push, deploy-staging]
+    needs: [build-and-push-api, deploy-staging]
     environment: staging
     steps:
       # Real, not a placeholder: polls the real Staging URL's /version until it reports the exact
@@ -162,7 +188,7 @@ jobs:
             exit 0
           fi
           URL="${{ secrets.STAGING_API_URL }}"
-          EXPECTED="${{ needs.build-and-push.outputs.image-tag }}"
+          EXPECTED="${{ needs.build-and-push-api.outputs.image-tag }}"
           for i in $(seq 1 30); do
             COMMIT=$(curl -fsS "$URL/version" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).data.gitCommit.slice(0,7))}catch(e){console.log('')}})" || true)
             if [ "$COMMIT" = "$EXPECTED" ]; then echo "Staging reports the new commit ($COMMIT)."; break; fi
