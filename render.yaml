@@ -5,7 +5,9 @@
 # documented way to pass custom --build-arg values through this file, so a source build would
 # permanently leave /version's gitCommit/buildTimestamp as placeholders. A registry image already
 # carries the real commit/timestamp baked in by the CD pipeline (docs/production-certification/
-# 36-m31-2-preflight-audit.md explains this decision in full).
+# 36-m31-2-preflight-audit.md explains this decision in full). Confirmed live: the CD pipeline's
+# built `german-job-engine-api:latest` image is real and publicly pullable from ghcr.io today
+# (verified via a real, unauthenticated `docker pull` — no registry credential needed).
 #
 # Contains NO secrets — every sensitive value below is `sync: false` (Render's own convention: set
 # once, by hand, in the dashboard; never tracked in this file, never in Git). See
@@ -14,6 +16,22 @@
 #
 # Region: Frankfurt — closest to this application's real audience (German job market), and keeps
 # candidate data within the EU, relevant to doc 15's own privacy/transparency review.
+#
+# STRUCTURAL FIX (this pass): Render's own envVarGroups do not support `fromDatabase` (a
+# resource-to-resource reference, only meaningful in the context of a specific service being
+# provisioned) or `sync: false` (a per-service manual-entry marker) — real errors returned by
+# Render's own Blueprint validator against a previous version of this file
+# ("envVarGroups[0].envVars[2] must have a key and value"). `gje-staging-shared` below now holds
+# ONLY literal, non-secret values; `DATABASE_URL` and every `sync: false` secret are declared
+# directly on each service that needs them. A first attempt at de-duplicating that per-service list
+# via a YAML anchor/alias (`&service-secrets` / `- *service-secrets`) was tried and REJECTED after
+# verifying its actual parsed output: a YAML alias substitutes the referenced node's value
+# in place, so `- *service-secrets` (a single list item referencing a whole sequence) produces a
+# NESTED array inside `envVars`, not a flattened, merged one — confirmed by actually parsing the
+# file with js-yaml before shipping it, not assumed. Plain literal duplication below is the
+# correct, verified-working structure; both API and Worker genuinely need the same secrets anyway
+# (same monolithic app, different active subsystems — API serves the OAuth/upload HTTP routes,
+# Worker's tick drivers perform the actual sends/processing).
 
 envVarGroups:
   - name: gje-staging-shared
@@ -22,16 +40,8 @@ envVarGroups:
         value: staging
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: gje-staging-postgres
-          property: connectionString
-      - key: JWT_ACCESS_SECRET
-        sync: false
       - key: JWT_ACCESS_EXPIRES_IN
         value: 15m
-      - key: JWT_REFRESH_SECRET
-        sync: false
       - key: JWT_REFRESH_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGIN
@@ -49,49 +59,25 @@ envVarGroups:
         value: "false"
       - key: PRODUCTION_WEBHOOK_PROCESSING_ENABLED
         value: "false" # flipped true only for the specific provider under active certification (doc 21 Stage 1)
-      - key: TEST_RECIPIENT_ALLOWLIST
-        sync: false # real approved test-recipient addresses — Product Owner sets this directly, never committed
       # --- Object storage — Cloudflare R2 (S3-compatible; MinioStorageAdapter needs zero code
       # changes, only these endpoint/credential values) — see doc 37 EXTERNAL ACTION REQUIRED ---
       - key: EMAIL_ATTACHMENT_STORAGE_PROVIDER
         value: s3
-      - key: EMAIL_ATTACHMENT_STORAGE_ENDPOINT
-        sync: false
       - key: EMAIL_ATTACHMENT_STORAGE_REGION
         value: auto
       - key: EMAIL_ATTACHMENT_STORAGE_BUCKET
         value: gje-staging-candidate-documents
-      - key: EMAIL_ATTACHMENT_STORAGE_ACCESS_KEY
-        sync: false
-      - key: EMAIL_ATTACHMENT_STORAGE_SECRET_KEY
-        sync: false
       # --- Connected Mailbox / OAuth — real Staging-only credentials (doc 38) ---
-      - key: MAILBOX_TOKEN_ENCRYPTION_KEY
-        sync: false
       - key: MAILBOX_TOKEN_ENCRYPTION_KEY_VERSION
         value: "1"
       - key: CONNECTED_MAILBOX_PRODUCTION_SENDING_ENABLED
         value: "false" # flipped true only during active Phase 10/11 certification against the allowlist
-      - key: GOOGLE_OAUTH_CLIENT_ID
-        sync: false
-      - key: GOOGLE_OAUTH_CLIENT_SECRET
-        sync: false
       - key: GOOGLE_OAUTH_REDIRECT_URI
         value: https://gje-staging-api.onrender.com/mailbox-connections/callback/google
-      - key: GOOGLE_INBOX_PUBSUB_TOPIC
-        sync: false
-      - key: GOOGLE_INBOX_PUSH_AUTH_AUDIENCE
-        sync: false
-      - key: MICROSOFT_OAUTH_CLIENT_ID
-        sync: false
-      - key: MICROSOFT_OAUTH_CLIENT_SECRET
-        sync: false
       - key: MICROSOFT_OAUTH_REDIRECT_URI
         value: https://gje-staging-api.onrender.com/mailbox-connections/callback/microsoft
       - key: MICROSOFT_INBOX_WEBHOOK_URL
         value: https://gje-staging-api.onrender.com/inbox-webhooks/microsoft
-      - key: MICROSOFT_INBOX_WEBHOOK_CLIENT_STATE
-        sync: false
       - key: CONNECTED_INBOX_PROCESSING_ENABLED
         value: "false" # flipped true only during active Phase 12/14 certification
       # --- Billing — sandbox only; Staging never touches real Paddle production credentials ---
@@ -99,19 +85,11 @@ envVarGroups:
         value: sandbox
       - key: BILLING_PRODUCTION_PAYMENTS_ENABLED
         value: "false"
-      - key: PADDLE_API_KEY
-        sync: false
-      - key: PADDLE_WEBHOOK_SECRET
-        sync: false
       # --- Email provider (transactional/system mail only — M28) ---
       - key: EMAIL_PRODUCTION_SENDING_ENABLED
         value: "false"
       - key: EMAIL_PRIMARY_PROVIDER
         value: resend
-      - key: RESEND_API_KEY
-        sync: false
-      - key: RESEND_WEBHOOK_SECRET
-        sync: false
 
 databases:
   - name: gje-staging-postgres
@@ -137,6 +115,46 @@ services:
         value: "false"
       - key: PORT
         value: "4000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gje-staging-postgres
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: TEST_RECIPIENT_ALLOWLIST
+        sync: false
+      - key: EMAIL_ATTACHMENT_STORAGE_ENDPOINT
+        sync: false
+      - key: EMAIL_ATTACHMENT_STORAGE_ACCESS_KEY
+        sync: false
+      - key: EMAIL_ATTACHMENT_STORAGE_SECRET_KEY
+        sync: false
+      - key: MAILBOX_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_INBOX_PUBSUB_TOPIC
+        sync: false
+      - key: GOOGLE_INBOX_PUSH_AUTH_AUDIENCE
+        sync: false
+      - key: MICROSOFT_OAUTH_CLIENT_ID
+        sync: false
+      - key: MICROSOFT_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: MICROSOFT_INBOX_WEBHOOK_CLIENT_STATE
+        sync: false
+      - key: PADDLE_API_KEY
+        sync: false
+      - key: PADDLE_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
 
   # Worker/Scheduler — the SAME image, RUN_TICKS=true: all 6 tick-driver services (email queue,
   # execution activation, inbox polling/watch-renewal, recruitment operations x2). Exactly ONE
@@ -157,8 +175,52 @@ services:
         value: "true"
       - key: PORT
         value: "4000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gje-staging-postgres
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: TEST_RECIPIENT_ALLOWLIST
+        sync: false
+      - key: EMAIL_ATTACHMENT_STORAGE_ENDPOINT
+        sync: false
+      - key: EMAIL_ATTACHMENT_STORAGE_ACCESS_KEY
+        sync: false
+      - key: EMAIL_ATTACHMENT_STORAGE_SECRET_KEY
+        sync: false
+      - key: MAILBOX_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_INBOX_PUBSUB_TOPIC
+        sync: false
+      - key: GOOGLE_INBOX_PUSH_AUTH_AUDIENCE
+        sync: false
+      - key: MICROSOFT_OAUTH_CLIENT_ID
+        sync: false
+      - key: MICROSOFT_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: MICROSOFT_INBOX_WEBHOOK_CLIENT_STATE
+        sync: false
+      - key: PADDLE_API_KEY
+        sync: false
+      - key: PADDLE_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
 
-  # Web — Next.js standalone server, public.
+  # Web — Next.js standalone server, public. NEXT_PUBLIC_API_URL is deliberately NOT set here as a
+  # runtime envVar — Next.js inlines NEXT_PUBLIC_* values into the client bundle at BUILD time
+  # (apps/web/Dockerfile's own ARG/ENV, set by the CD pipeline's --build-arg), so a Render runtime
+  # env var of the same name would have zero effect on the deployed frontend. NODE_ENV/PORT are
+  # already baked into the image (Dockerfile's own ENV) — nothing else to set here.
   - type: web
     name: gje-staging-web
     runtime: image
@@ -167,6 +229,3 @@ services:
     region: frankfurt
     plan: starter
     healthCheckPath: /
-    envVars:
-      - key: NEXT_PUBLIC_API_URL
-        value: https://gje-staging-api.onrender.com
