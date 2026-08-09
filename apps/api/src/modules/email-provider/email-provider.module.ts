@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ExecutionModule } from '../execution/execution.module';
 import { EmailProviderGatewayService } from './application/services/email-provider-gateway.service';
 import { EmailProviderPort, EMAIL_PROVIDER } from './domain/ports/email-provider.port';
@@ -25,9 +25,20 @@ import { SmtpEmailProviderAdapter } from './infrastructure/adapters/smtp-email-p
  * `EmailDeliveryExecutionService`, not by this simpler facade). Deliberately no dependency on
  * `provider-selection` or `deliverability` here, to keep this module's own dependency direction
  * one-way (`provider-selection`/`deliverability` depend on `email-provider`, never the reverse).
+ *
+ * M30 fix — every adapter here injects `ConfigService` directly (real API keys/credentials), but
+ * this module never imported `ConfigModule` itself, silently relying on `AppModule`'s
+ * `ConfigModule.forRoot({ isGlobal: true })`. That's invisible in the real app (global modules are
+ * available everywhere) but breaks the moment this module is compiled inside a narrower,
+ * hand-assembled testing module that doesn't register `ConfigModule` at all — exactly what
+ * `test/execution-pipeline.e2e-spec.ts`'s partial `[PrismaModule, ExecutionOrchestratorModule,
+ * ExecutionRuntimeModule, WorkerModule, ExecutionTrackingModule]` graph does. Found while running
+ * the full e2e suite as part of M30's own verification (pre-existing since M28, not introduced by
+ * M30) — fixed the same way as the identical gap in `DocumentsModule`: import `ConfigModule`
+ * explicitly so this module is self-contained regardless of what else is compiled alongside it.
  */
 @Module({
-  imports: [ExecutionModule],
+  imports: [ExecutionModule, ConfigModule],
   providers: [
     EmailProviderGatewayService,
     NullEmailProvider,

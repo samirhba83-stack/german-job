@@ -9,6 +9,7 @@ import {
   Settings,
   ShieldCheck,
   Inbox,
+  ListChecks,
   type LucideIcon,
 } from 'lucide-react';
 import { UserRole } from '@german-job-engine/shared-types';
@@ -32,6 +33,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Campaigns', href: '/campaigns', icon: Megaphone, roles: [UserRole.CANDIDATE, UserRole.ADMIN], status: 'live' },
   { label: 'Applications', href: '/applications', icon: FileText, roles: 'any', status: 'live' },
   { label: 'Inbox', href: '/inbox', icon: Inbox, roles: [UserRole.CANDIDATE, UserRole.ADMIN], status: 'live' },
+  { label: 'Tasks', href: '/tasks', icon: ListChecks, roles: [UserRole.CANDIDATE, UserRole.ADMIN], status: 'live' },
   { label: 'Companies', href: '/companies', icon: Building2, roles: 'any', status: 'live' },
   { label: 'Jobs', href: '/jobs', icon: Briefcase, roles: 'any', status: 'live' },
   { label: 'Mission Control', href: '/mission-control', icon: Radar, roles: 'any', status: 'dormant' },

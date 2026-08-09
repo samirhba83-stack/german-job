@@ -348,11 +348,23 @@ export class Application extends AggregateRoot<string> {
     this.raise(new ApplicationWithdrawn(this.id, correlationId.value, previous, target, actor, reason), correlationId, previous, target, actor);
   }
 
-  archive(actor: Actor, correlationId: CorrelationId, reason?: TransitionReason): void {
+  /** `companyOwnerId` (M31.1) — the real `Company.ownerId` for `this.props.companyId`, resolved
+   * by the calling handler (a real repository lookup the domain layer itself cannot perform) and
+   * passed in so `ArchivalPolicy` can authorize a Company actor without any I/O of its own. `null`
+   * when the actor isn't a Company actor, or when the resolution genuinely found no such company —
+   * either way `IsCompanyOwnerSpecification` treats `null` as "not the owner," never as "skip the
+   * check." */
+  archive(actor: Actor, correlationId: CorrelationId, companyOwnerId: string | null, reason?: TransitionReason): void {
     const target = S.ARCHIVED;
-    this.guard(target, new ArchivalPolicy(), actor);
+    this.guard(target, new ArchivalPolicy(), actor, { companyOwnerId, hasReason: Boolean(reason) });
     const previous = this.applyTransition(target, actor, correlationId, reason ?? null, Metadata.empty(), null, null);
-    this.raise(new ApplicationArchived(this.id, correlationId.value, previous, target, actor), correlationId, previous, target, actor);
+    this.raise(
+      new ApplicationArchived(this.id, correlationId.value, previous, target, actor, reason ?? null),
+      correlationId,
+      previous,
+      target,
+      actor,
+    );
   }
 
   /**
@@ -364,7 +376,15 @@ export class Application extends AggregateRoot<string> {
     this.props.updatedAt = new Date();
   }
 
-  private guard(target: ApplicationLifecycleStatus, policy: ApplicationPolicy, actor: Actor): void {
+  /** `companyOwnerId`/`hasReason` (M31.1) — only `ArchivalPolicy` currently reads either; every
+   * other policy's own narrower `authorize()` signature ignores them, same as it already ignores
+   * `currentState`/`targetState` where irrelevant. */
+  private guard(
+    target: ApplicationLifecycleStatus,
+    policy: ApplicationPolicy,
+    actor: Actor,
+    extra: { companyOwnerId?: string | null; hasReason?: boolean } = {},
+  ): void {
     if (!CanTransitionSpecification.isSatisfiedBy(this.props.status, target)) {
       throw new InvalidApplicationStatusTransitionException(this.props.status, target);
     }
@@ -374,6 +394,8 @@ export class Application extends AggregateRoot<string> {
       candidateId: this.props.candidateId,
       currentState: this.props.status,
       targetState: target,
+      companyOwnerId: extra.companyOwnerId ?? null,
+      hasReason: extra.hasReason ?? false,
     });
     if (!decision.allowed) {
       throw new UnauthorizedApplicationActionException(decision.explanation);

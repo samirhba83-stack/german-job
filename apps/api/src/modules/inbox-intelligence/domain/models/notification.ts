@@ -7,7 +7,15 @@ export type NotificationKind =
   | 'ASSESSMENT_INVITATION'
   | 'INBOX_CONNECTION_FAILURE'
   | 'REAUTHORIZATION_REQUIRED'
-  | 'AMBIGUOUS_REPLY_REVIEW';
+  | 'AMBIGUOUS_REPLY_REVIEW'
+  // M30 additions.
+  | 'FOLLOW_UP_PAUSED'
+  | 'FOLLOW_UP_STOPPED'
+  | 'FOLLOW_UP_RESUME_AVAILABLE'
+  | 'OFFER_REVIEW_REQUIRED'
+  | 'MANUAL_REVIEW_REQUIRED'
+  | 'TRANSITION_EXECUTION_FAILED'
+  | 'TASK_OVERDUE';
 
 /** M29 Phase 18 — the first real, durable, backend-sourced notification in this codebase (Phase 1
  * audit finding: previously only a transient, session-local frontend toast store existed).
@@ -50,6 +58,9 @@ export interface NotificationPreferenceRecord {
   readonly assessmentInvitationEnabled: boolean;
   readonly inboxConnectionIssuesEnabled: boolean;
   readonly ambiguousReplyReviewEnabled: boolean;
+  readonly followUpControlChangedEnabled: boolean;
+  readonly taskDeadlineEnabled: boolean;
+  readonly transitionExecutionFailedEnabled: boolean;
 }
 
 export const NOTIFICATION_KIND_PREFERENCE_FIELD: Readonly<Record<NotificationKind, keyof Omit<NotificationPreferenceRecord, 'userId'>>> = {
@@ -62,4 +73,11 @@ export const NOTIFICATION_KIND_PREFERENCE_FIELD: Readonly<Record<NotificationKin
   INBOX_CONNECTION_FAILURE: 'inboxConnectionIssuesEnabled',
   REAUTHORIZATION_REQUIRED: 'inboxConnectionIssuesEnabled',
   AMBIGUOUS_REPLY_REVIEW: 'ambiguousReplyReviewEnabled',
+  FOLLOW_UP_PAUSED: 'followUpControlChangedEnabled',
+  FOLLOW_UP_STOPPED: 'followUpControlChangedEnabled',
+  FOLLOW_UP_RESUME_AVAILABLE: 'followUpControlChangedEnabled',
+  OFFER_REVIEW_REQUIRED: 'offerOrAcceptanceEnabled',
+  MANUAL_REVIEW_REQUIRED: 'ambiguousReplyReviewEnabled',
+  TRANSITION_EXECUTION_FAILED: 'transitionExecutionFailedEnabled',
+  TASK_OVERDUE: 'taskDeadlineEnabled',
 };

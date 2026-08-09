@@ -39,7 +39,9 @@ export class MailboxOAuthCallbackController {
     @Query('error') providerError: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
-    const frontendUrl = this.config.get<string>('app.corsOrigin', 'http://localhost:3000');
+    // M31 Phase 8 — a real, dedicated redirect target, distinct from the (now multi-valued)
+    // `app.corsOrigin` list; see app.config.ts's own doc comment for why these were split.
+    const frontendUrl = this.config.get<string>('app.frontendUrl', 'http://localhost:3000');
     parseProviderSlug(providerSlug); // validates the slug; the real provider comes from the stored transaction
 
     if (!state) {

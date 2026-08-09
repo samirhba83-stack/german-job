@@ -15,6 +15,7 @@ import { TokenService } from './application/services/token.service';
 import { REFRESH_TOKEN_REPOSITORY } from './domain/repositories/refresh-token.repository.interface';
 import { PrismaRefreshTokenRepository } from './infrastructure/persistence/prisma-refresh-token.repository';
 import { UsersModule } from '../users/users.module';
+import { BetaAccessModule } from '../beta-access/beta-access.module';
 
 const commandHandlers = [RegisterHandler, LoginHandler, RefreshTokenHandler, LogoutHandler];
 const strategies = [JwtStrategy, JwtRefreshStrategy, LocalStrategy];
@@ -24,6 +25,8 @@ const strategies = [JwtStrategy, JwtRefreshStrategy, LocalStrategy];
     CqrsModule,
     PassportModule,
     UsersModule,
+    BetaAccessModule,
+    ConfigModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

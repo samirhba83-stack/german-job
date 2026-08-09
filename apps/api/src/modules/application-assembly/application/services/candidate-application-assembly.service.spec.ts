@@ -88,6 +88,9 @@ function fakeUserRepository(user: User | null): UserRepository {
     findByEmail: jest.fn().mockResolvedValue(user),
     save: jest.fn(),
     delete: jest.fn(),
+    getAccountStatus: jest.fn(),
+    suspend: jest.fn(),
+    unsuspend: jest.fn(),
   };
 }
 

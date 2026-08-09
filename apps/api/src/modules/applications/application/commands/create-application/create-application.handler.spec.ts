@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
-import { ActorRole } from '@german-job-engine/shared-types';
+import { ActorRole, TransitionReasonCode } from '@german-job-engine/shared-types';
 import { CreateApplicationHandler } from './create-application.handler';
 import { CreateApplicationCommand } from './create-application.command';
 import { ApplicationRepository } from '../../../domain/repositories/application.repository.interface';
@@ -8,6 +8,7 @@ import { ApplicationSnapshot } from '../../../domain/value-objects/application-s
 import { ApplicationChannel } from '../../../domain/value-objects/application-channel.vo';
 import { Actor } from '../../../domain/value-objects/actor.vo';
 import { CorrelationId } from '../../../domain/value-objects/correlation-id.vo';
+import { TransitionReason } from '../../../domain/value-objects/transition-reason.vo';
 
 const VALID_SNAPSHOT = { jobTitle: 'Backend Engineer', companyName: 'Acme GmbH', jobLocation: 'Berlin' };
 
@@ -23,7 +24,12 @@ function existingApplication(jobId: string, terminal = false): Application {
     CorrelationId.create('corr-0'),
   );
   if (terminal) {
-    application.archive(Actor.admin('admin-1'), CorrelationId.create('corr-0'));
+    application.archive(
+      Actor.admin('admin-1'),
+      CorrelationId.create('corr-0'),
+      null,
+      TransitionReason.create(TransitionReasonCode.CANDIDATE_REQUEST),
+    );
   }
   return application;
 }

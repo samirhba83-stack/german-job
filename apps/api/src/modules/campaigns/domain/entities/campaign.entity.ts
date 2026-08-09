@@ -75,6 +75,7 @@ import { BatchPartiallyCompleted } from '../events/batch-partially-completed.eve
 import { ApplicationQueued } from '../events/application-queued.event';
 import { ApplicationDispatched } from '../events/application-dispatched.event';
 import { ApplicationSkipped } from '../events/application-skipped.event';
+import { ApplicationExcluded } from '../events/application-excluded.event';
 import { ApplicationFailed } from '../events/application-failed.event';
 import { RetryScheduled } from '../events/retry-scheduled.event';
 import { RetryExhausted } from '../events/retry-exhausted.event';
@@ -685,6 +686,27 @@ export class Campaign extends AggregateRoot<string> {
     target.markSkipped();
     this.touch();
     this.addDomainEvent(new ApplicationSkipped(this.id, correlationId.value, actor, target.id, reason));
+  }
+
+  /** M30 Phase 4/5 — the real, additive enforcement point for follow-up suppression: called from
+   * `CampaignBatchDispatchService.dispatchOneTarget()` immediately before the real provider send,
+   * in place of dispatching, whenever `FollowUpEligibilityService` reports the target's
+   * application is not currently eligible. Deliberately distinct from `skipTarget()` — an
+   * exclusion is never a generic skip or a delivery failure (Non-Negotiable Principle #8: never
+   * represent a deliberate decision as a failure). Like `skipTarget()`, this only ever runs on a
+   * target that has not yet been marked DISPATCHED in this same call — `CampaignTarget.
+   * markExcluded()` is exactly as unconditional as `markSkipped()`, so calling this on an
+   * already-dispatched target would corrupt real send history; the one real call site never does. */
+  excludeTarget(targetId: string, reason: CampaignReason, actor: Actor, correlationId: CorrelationId): void {
+    this.requireRunning();
+
+    const target = this.findTarget(targetId);
+    if (!target) {
+      throw new CampaignTargetNotFoundException(targetId);
+    }
+    target.markExcluded();
+    this.touch();
+    this.addDomainEvent(new ApplicationExcluded(this.id, correlationId.value, actor, target.id, reason));
   }
 
   recordTargetFailure(targetId: string, failureReason: string | null, actor: Actor, correlationId: CorrelationId): void {

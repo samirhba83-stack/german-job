@@ -28,13 +28,22 @@ export class ArchiveApplicationHandler implements ICommandHandler<ArchiveApplica
 
   async execute(command: ArchiveApplicationCommand): Promise<ApplicationReadModel> {
     const application = await loadApplicationOrThrow(this.applicationRepository, command.applicationId);
+    // Fast, handler-level rejection (pre-existing) — kept as a first line of defense.
     await assertCanAccessApplication(this.companyRepository, application, command.actorRole, command.actorId);
     const actor = buildActor(command.actorRole, command.actorId);
     const correlationId = resolveCorrelationId(command.correlationId);
     const reason = command.reasonCode ? TransitionReason.create(command.reasonCode, command.reasonNote) : undefined;
 
+    // M31.1 — resolved once here (real repository I/O the domain layer itself cannot perform) and
+    // passed into `Application.archive()`, which is the AUTHORITATIVE enforcement point
+    // (`ArchivalPolicy`) — never trust the handler-level check above alone; a caller that invokes
+    // `application.archive()` directly, bypassing this handler entirely, still cannot bypass
+    // ownership, because the aggregate enforces its own rule regardless of caller.
+    const company = await this.companyRepository.findById(application.companyId);
+    const companyOwnerId = company?.ownerId ?? null;
+
     try {
-      application.archive(actor, correlationId, reason);
+      application.archive(actor, correlationId, companyOwnerId, reason);
     } catch (error) {
       mapTransitionError(error);
     }

@@ -9,3 +9,4 @@ export * from './job.dto';
 export * from './campaign.dto';
 export * from './connected-mailbox.dto';
 export * from './inbox-intelligence.dto';
+export * from './recruitment-operations.dto';

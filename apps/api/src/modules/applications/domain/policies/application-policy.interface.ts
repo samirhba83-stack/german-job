@@ -20,6 +20,11 @@ export function deny(reasonCode: string, explanation: string): PolicyDecision {
  * The state graph itself is enforced by CanTransitionSpecification inside the aggregate; a
  * policy governs the rules that are genuinely pluggable rather than structural (who may act,
  * what must accompany the action).
+ *
+ * `companyOwnerId`/`hasReason` (M31.1) — added for `ArchivalPolicy`'s real ownership/reason
+ * enforcement; every other existing policy's own `authorize()` signature stays narrower (TS
+ * method-shorthand bivariance allows this, matching every policy already implemented before this
+ * change) and simply never reads these two fields.
  */
 export interface ApplicationPolicy {
   readonly name: string;
@@ -28,5 +33,7 @@ export interface ApplicationPolicy {
     candidateId: string;
     currentState: ApplicationLifecycleStatus;
     targetState: ApplicationLifecycleStatus;
+    companyOwnerId: string | null;
+    hasReason: boolean;
   }): PolicyDecision;
 }

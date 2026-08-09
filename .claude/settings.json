@@ -3,7 +3,8 @@
     "allow": [
       "PowerShell(Get-Command npx -ErrorAction SilentlyContinue)",
       "PowerShell(\\(Get-Content \"c:\\\\Users\\\\DELL\\\\Desktop\\\\German-Job-Engine\\\\apps\\\\web\\\\tests\\\\e2e\\\\_tmp-m286-settings-check.spec.ts\"\\) -replace \"if \\\\\\(msg\\\\.type\\\\\\(\\\\\\) === 'error'\\\\\\) consoleErrors\\\\.push\\\\\\(msg\\\\.text\\\\\\(\\\\\\)\\\\\\);\", \"if \\(msg.type\\(\\) === 'error' && !isKnownNextDevNoise\\(msg.text\\(\\)\\)\\) consoleErrors.push\\(msg.text\\(\\)\\);\" | Set-Content -Encoding utf8 \"c:\\\\Users\\\\DELL\\\\Desktop\\\\German-Job-Engine\\\\apps\\\\web\\\\tests\\\\e2e\\\\_tmp-m286-settings-check.spec.ts\")",
-      "PowerShell(cd c:\\\\Users\\\\DELL\\\\Desktop\\\\German-Job-Engine\\\\apps\\\\api; $env:DATABASE_URL = \"postgresql://job_engine:change_me@localhost:5432/german_job_engine?schema=public\"; npx jest --testPathPattern=\"connected-mailbox-active-per-user\\\\.concurrency\\\\.spec\\\\.ts$\" --testPathIgnorePatterns=/node_modules/ --silent 2>&1 | Select-Object -Last 150)"
+      "PowerShell(cd c:\\\\Users\\\\DELL\\\\Desktop\\\\German-Job-Engine\\\\apps\\\\api; $env:DATABASE_URL = \"postgresql://job_engine:change_me@localhost:5432/german_job_engine?schema=public\"; npx jest --testPathPattern=\"connected-mailbox-active-per-user\\\\.concurrency\\\\.spec\\\\.ts$\" --testPathIgnorePatterns=/node_modules/ --silent 2>&1 | Select-Object -Last 150)",
+      "Bash(echo \"TSC:$?\")"
     ]
   }
 }

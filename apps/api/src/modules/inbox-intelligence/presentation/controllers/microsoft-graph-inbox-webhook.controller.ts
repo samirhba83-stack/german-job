@@ -85,6 +85,16 @@ export class MicrosoftGraphInboxWebhookController {
       if (!mailbox) continue;
 
       await this.audit.record({ eventType: 'INBOX_CHANGE_RECEIVED', userId: mailbox.userId, connectedMailboxId: mailbox.id, detail: 'Graph change notification received.' });
+
+      // M31 Phase 26 — same real Production Safety Flag as the Gmail webhook (see its own doc
+      // comment): real-world Microsoft Graph certification (Phase 10) is prepared but not yet
+      // executed. Authenticated and audited either way; polling stays off by default. Graph only
+      // requires a 2xx/202 ack (sent unconditionally below), so this never risks the subscription.
+      if (!this.config.get<boolean>('productionSafety.productionWebhookProcessingEnabled', false)) {
+        this.logger.warn(`Graph notification for subscription "${notification.subscriptionId}" authenticated and audited, but production webhook processing is disabled — polling skipped.`);
+        continue;
+      }
+
       await this.polling.pollMailbox(mailbox);
     }
 

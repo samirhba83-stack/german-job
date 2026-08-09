@@ -16,6 +16,9 @@ describe('CreateUserHandler', () => {
       findByEmail: jest.fn(),
       save: jest.fn(),
       delete: jest.fn(),
+      getAccountStatus: jest.fn(),
+      suspend: jest.fn(),
+      unsuspend: jest.fn(),
     };
     passwordHasher = {
       hash: jest.fn().mockResolvedValue('hashed-password'),

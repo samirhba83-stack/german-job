@@ -12,6 +12,7 @@ import { useInboxMessage } from '../hooks/use-inbox-message';
 import { InboxCorrectionPanel } from './inbox-correction-panel';
 import { TransitionProposalPanel } from './transition-proposal-panel';
 import { ReplyDraftPanel } from './reply-draft-panel';
+import { RelatedRecruitmentTasks } from '@/features/recruitment/components/related-recruitment-tasks';
 import type { ExtractedRecruitmentFactsDto } from '../types';
 
 function WorkspaceSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -156,6 +157,12 @@ export function InboxMessageDetail({ messageId }: { messageId: string }) {
               <TransitionProposalPanel key={proposal.id} messageId={message.id} proposal={proposal} />
             ))}
           </div>
+        </WorkspaceSection>
+      )}
+
+      {message.correlatedApplicationId && (
+        <WorkspaceSection title="Next steps for this application">
+          <RelatedRecruitmentTasks applicationId={message.correlatedApplicationId} />
         </WorkspaceSection>
       )}
 

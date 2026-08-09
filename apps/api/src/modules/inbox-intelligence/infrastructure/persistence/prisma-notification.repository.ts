@@ -94,6 +94,9 @@ export class PrismaNotificationPreferenceRepository implements NotificationPrefe
       assessmentInvitationEnabled: row.assessmentInvitationEnabled,
       inboxConnectionIssuesEnabled: row.inboxConnectionIssuesEnabled,
       ambiguousReplyReviewEnabled: row.ambiguousReplyReviewEnabled,
+      followUpControlChangedEnabled: row.followUpControlChangedEnabled,
+      taskDeadlineEnabled: row.taskDeadlineEnabled,
+      transitionExecutionFailedEnabled: row.transitionExecutionFailedEnabled,
     };
   }
 }

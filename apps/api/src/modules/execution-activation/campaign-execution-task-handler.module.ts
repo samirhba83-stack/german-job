@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { CqrsModule } from '@nestjs/cqrs';
 import { CompaniesModule } from '../companies/companies.module';
 import { JobsModule } from '../jobs/jobs.module';
@@ -9,6 +10,8 @@ import { EmailProviderModule } from '../email-provider/email-provider.module';
 import { ConnectedMailboxModule } from '../connected-mailbox/connected-mailbox.module';
 import { BillingModule } from '../billing/billing.module';
 import { ExecutionTrackingModule } from '../execution-tracking/execution-tracking.module';
+import { DocumentsModule } from '../documents/documents.module';
+import { RecruitmentOperationsModule } from '../recruitment-operations/recruitment-operations.module';
 import { TASK_EXECUTION_PORT } from '../worker/domain/ports/task-execution.port';
 import { CampaignBatchDispatchService } from './application/services/campaign-batch-dispatch.service';
 import { CampaignPolicyContextBuilder } from './application/services/campaign-policy-context.builder';
@@ -37,10 +40,21 @@ import { CampaignExecutionCallContextHolder } from './application/services/campa
  * suppression checking) and on `DocumentsModule` (for attachment resolution), so nothing here
  * needs either lower-level module directly anymore. `EmailProviderModule` stays imported for
  * `EmailProviderGatewayService`, still used by `CampaignPolicyContextBuilder`.
+ *
+ * M30: `RecruitmentOperationsModule` provides `FollowUpEligibilityService` — `
+ * CampaignBatchDispatchService.dispatchOneTarget()` now checks it immediately before the real
+ * provider send, behind `REPLY_DRIVEN_EXECUTION_ENABLED` (default false — while off, dispatch
+ * behaves exactly as it did before this milestone). `CampaignBatchDispatchService` also now
+ * injects `ConfigService` directly (to read that same flag) — this module imports `ConfigModule`
+ * for the same reason `DocumentsModule`/`EmailProviderModule`/`BillingModule`/
+ * `ConnectedMailboxModule`/`DeliverabilityModule` now do (see their doc comments): a provider
+ * using `ConfigService` should not silently depend on some OTHER module having registered it
+ * globally elsewhere.
  */
 @Module({
   imports: [
     CqrsModule,
+    ConfigModule,
     CompaniesModule,
     JobsModule,
     ApplicationsModule,
@@ -50,6 +64,8 @@ import { CampaignExecutionCallContextHolder } from './application/services/campa
     ConnectedMailboxModule,
     BillingModule,
     ExecutionTrackingModule,
+    DocumentsModule,
+    RecruitmentOperationsModule,
   ],
   providers: [
     CampaignBatchDispatchService,

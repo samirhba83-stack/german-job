@@ -1,5 +1,5 @@
 import { Module, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ExecutionModule } from '../execution/execution.module';
 import { CANDIDATE_DOCUMENT_REPOSITORY } from './domain/ports/candidate-document.repository';
 import { STORAGE_PORT } from './domain/ports/storage.port';
@@ -21,9 +21,20 @@ import { DocumentsController } from './presentation/controllers/documents.contro
  * infrastructure — never on `deliverability`, so the dependency direction stays one-way
  * (`deliverability` -> `documents`, established when `DeliverabilityModule` is wired to import
  * this module for the Provider Manager's attachment resolution step).
+ *
+ * M30 fix — this module's own constructor (`onModuleInit`, below) injects `ConfigService`
+ * directly, but never imported `ConfigModule` itself: it silently relied on `AppModule`'s
+ * `ConfigModule.forRoot({ isGlobal: true })` registration, which only exists when the FULL app
+ * module graph is compiled. `CampaignExecutionTaskHandlerModule` (M30) now imports this module,
+ * which pulled it — for the first time — into a narrower, hand-assembled partial testing module
+ * (`test/execution-resilience.e2e-spec.ts`, pre-existing from M19) that never registers
+ * `ConfigModule` at all, causing a real `UnknownDependenciesException` there. Explicitly importing
+ * `ConfigModule` here (safe and idempotent even though it's also global — NestJS module resolution
+ * treats it as the same singleton either way) makes this module correctly self-contained instead
+ * of silently depending on which other module happens to be compiled alongside it.
  */
 @Module({
-  imports: [ExecutionModule],
+  imports: [ExecutionModule, ConfigModule],
   controllers: [DocumentsController],
   providers: [
     { provide: CANDIDATE_DOCUMENT_REPOSITORY, useClass: PrismaCandidateDocumentRepository },

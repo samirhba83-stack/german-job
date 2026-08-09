@@ -22,8 +22,17 @@ import { SearchApplicationsHandler } from './application/queries/search-applicat
 import { ListApplicationsHandler } from './application/queries/list-applications/list-applications.handler';
 import { GetTimelineHandler } from './application/queries/get-timeline/get-timeline.handler';
 import { GetApplicationHistoryHandler } from './application/queries/get-application-history/get-application-history.handler';
+import { RecordDocumentRequestHandler } from './application/commands/record-document-request/record-document-request.handler';
+import { RecordInformationRequestHandler } from './application/commands/record-information-request/record-information-request.handler';
+import { RecordAssessmentInvitationHandler } from './application/commands/record-assessment-invitation/record-assessment-invitation.handler';
+import { MarkApplicationUnderReviewHandler } from './application/commands/mark-application-under-review/mark-application-under-review.handler';
+import { MarkApplicationWaitingHandler } from './application/commands/mark-application-waiting/mark-application-waiting.handler';
+import { RecordExternalOfferEvidenceHandler } from './application/commands/record-external-offer-evidence/record-external-offer-evidence.handler';
+import { OperationalDecisionCommandHelper } from './application/commands/operational-decision-command.helper';
 import { APPLICATION_REPOSITORY } from './domain/repositories/application.repository.interface';
+import { APPLICATION_OPERATIONAL_DECISION_REPOSITORY } from './domain/repositories/application-operational-decision.repository.interface';
 import { PrismaApplicationRepository } from './infrastructure/persistence/prisma-application.repository';
+import { PrismaApplicationOperationalDecisionRepository } from './infrastructure/persistence/prisma-application-operational-decision.repository';
 
 const commandHandlers = [
   CreateApplicationHandler,
@@ -41,6 +50,13 @@ const commandHandlers = [
   RejectApplicationHandler,
   WithdrawApplicationHandler,
   ArchiveApplicationHandler,
+  // M30 — additive operational-decision commands (never touch Application.status).
+  RecordDocumentRequestHandler,
+  RecordInformationRequestHandler,
+  RecordAssessmentInvitationHandler,
+  MarkApplicationUnderReviewHandler,
+  MarkApplicationWaitingHandler,
+  RecordExternalOfferEvidenceHandler,
 ];
 
 const queryHandlers = [
@@ -58,7 +74,9 @@ const queryHandlers = [
     ...commandHandlers,
     ...queryHandlers,
     { provide: APPLICATION_REPOSITORY, useClass: PrismaApplicationRepository },
+    { provide: APPLICATION_OPERATIONAL_DECISION_REPOSITORY, useClass: PrismaApplicationOperationalDecisionRepository },
+    OperationalDecisionCommandHelper,
   ],
-  exports: [APPLICATION_REPOSITORY],
+  exports: [APPLICATION_REPOSITORY, APPLICATION_OPERATIONAL_DECISION_REPOSITORY],
 })
 export class ApplicationsModule {}

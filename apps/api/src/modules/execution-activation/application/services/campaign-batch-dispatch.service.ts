@@ -1,10 +1,12 @@
 import { Inject, Injectable, ConflictException } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
-import { ActorRole, ApplicationChannelType } from '@german-job-engine/shared-types';
+import { ConfigService } from '@nestjs/config';
+import { ActorRole, ApplicationChannelType, CampaignReasonCode } from '@german-job-engine/shared-types';
 import { Campaign } from '../../../campaigns/domain/entities/campaign.entity';
 import { Company } from '../../../companies/domain/entities/company.entity';
 import { Actor } from '../../../campaigns/domain/value-objects/actor.vo';
 import { CorrelationId } from '../../../campaigns/domain/value-objects/correlation-id.vo';
+import { CampaignReason } from '../../../campaigns/domain/value-objects/campaign-reason.vo';
 import { EvidenceReference } from '../../../campaigns/domain/value-objects/evidence-reference.vo';
 import { COMPANY_REPOSITORY, CompanyRepository } from '../../../companies/domain/repositories/company.repository.interface';
 import { JOB_REPOSITORY, JobRepository } from '../../../jobs/domain/repositories/job.repository.interface';
@@ -15,6 +17,8 @@ import { BusinessPolicyEnforcementService } from '../../../business-policy-enfor
 import { ConnectedMailboxSendService } from '../../../connected-mailbox/application/services/connected-mailbox-send.service';
 import { ExecutionEventRecorder, EXECUTION_EVENT_RECORDER } from '../../../execution-tracking/domain/ports/execution-event-recorder.port';
 import { EMPTY_BUSINESS_CONTEXT } from '../../../execution-tracking/domain/models/business-context';
+import { FollowUpEligibilityService } from '../../../recruitment-operations/application/services/follow-up-eligibility.service';
+import { EmailSecurityAuditService } from '../../../documents/application/services/email-security-audit.service';
 import { CampaignPolicyContextBuilder } from './campaign-policy-context.builder';
 
 export interface BatchDispatchSummary {
@@ -22,7 +26,10 @@ export interface BatchDispatchSummary {
   readonly attempted: number;
   readonly dispatched: number;
   readonly failed: number;
+  readonly excluded: number;
 }
+
+type DispatchOutcome = 'DISPATCHED' | 'FAILED' | 'EXCLUDED';
 
 /**
  * The real per-target pipeline the M26 execution-orchestrator scaffold's BATCH_EXECUTION step
@@ -59,6 +66,9 @@ export class CampaignBatchDispatchService {
     private readonly policyContextBuilder: CampaignPolicyContextBuilder,
     private readonly connectedMailboxSend: ConnectedMailboxSendService,
     @Inject(EXECUTION_EVENT_RECORDER) private readonly eventRecorder: ExecutionEventRecorder,
+    private readonly followUpEligibility: FollowUpEligibilityService,
+    private readonly emailSecurityAudit: EmailSecurityAuditService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -73,21 +83,21 @@ export class CampaignBatchDispatchService {
 
     let dispatched = 0;
     let failed = 0;
+    let excluded = 0;
 
     for (const target of targets) {
       const outcome = await this.dispatchOneTarget(campaign, target.id, target.jobId, target.companyId, actor, correlationId, now);
-      if (outcome) {
-        dispatched += 1;
-      } else {
-        failed += 1;
-      }
+      if (outcome === 'DISPATCHED') dispatched += 1;
+      else if (outcome === 'EXCLUDED') excluded += 1;
+      else failed += 1;
     }
 
-    return { batchId: batch.id, attempted: targets.length, dispatched, failed };
+    return { batchId: batch.id, attempted: targets.length, dispatched, failed, excluded };
   }
 
-  /** True on a confirmed successful dispatch; false on any handled failure (never throws for a
-   * business-level rejection — only an unexpected infrastructure exception propagates). */
+  /** `DISPATCHED` on a confirmed successful send; `FAILED` on any handled delivery failure;
+   * `EXCLUDED` (M30) when `FollowUpEligibilityService` blocks the send — never throws for a
+   * business-level rejection, only an unexpected infrastructure exception propagates. */
   private async dispatchOneTarget(
     campaign: Campaign,
     targetId: string,
@@ -96,14 +106,36 @@ export class CampaignBatchDispatchService {
     actor: Actor,
     correlationId: CorrelationId,
     now: Date,
-  ): Promise<boolean> {
+  ): Promise<DispatchOutcome> {
     const company = await this.companyRepository.findById(companyId);
     if (!company) {
       campaign.recordTargetFailure(targetId, `Target company ${companyId} no longer exists.`, actor, correlationId);
-      return false;
+      return 'FAILED';
     }
 
     const applicationId = await this.findOrCreateApplication(campaign, jobId, companyId, company, correlationId.value);
+
+    // M30 Phase 4 — the one real, always-executed eligibility gate. In this codebase's real
+    // architecture there is no separately-persisted "queue insertion"/"reservation" stage for a
+    // campaign target the way an EmailMessage queue has — planNextBatch() selects and marks a
+    // target QUEUED, then this method resolves/creates the real Application and sends, all inside
+    // one synchronous call. This check is therefore honestly BOTH "queue insertion" and "final
+    // pre-send recheck" collapsed into a single checkpoint every real target passes through
+    // unconditionally (documented in docs/recruitment-operations/known-limitations.md).
+    if (this.config.get<boolean>('recruitmentOperations.replyDrivenExecutionEnabled', false)) {
+      const eligibility = await this.followUpEligibility.checkEligibility(applicationId, campaign.ownerId);
+      if (eligibility.status === 'PERMANENTLY_BLOCKED' || eligibility.status === 'TEMPORARILY_BLOCKED' || eligibility.status === 'MANUAL_REVIEW_REQUIRED') {
+        campaign.excludeTarget(targetId, CampaignReason.create(CampaignReasonCode.SYSTEM_SIGNAL, eligibility.explanation), actor, correlationId);
+        await this.emailSecurityAudit.record({
+          eventType: 'FOLLOW_UP_SEND_BLOCKED',
+          userId: campaign.ownerId,
+          applicationId,
+          campaignId: campaign.id,
+          detail: `Target ${targetId} excluded before send: ${eligibility.status} — ${eligibility.explanation}`,
+        });
+        return 'EXCLUDED';
+      }
+    }
 
     let pkg;
     try {
@@ -115,12 +147,12 @@ export class CampaignBatchDispatchService {
       });
     } catch (error) {
       campaign.recordTargetFailure(targetId, error instanceof Error ? error.message : 'Application assembly failed.', actor, correlationId);
-      return false;
+      return 'FAILED';
     }
 
     if (pkg.selectedCv === null) {
       campaign.recordTargetFailure(targetId, 'No CV is available for this candidate — delivery blocked rather than sent incomplete.', actor, correlationId);
-      return false;
+      return 'FAILED';
     }
 
     const policyContext = await this.policyContextBuilder.build({
@@ -135,7 +167,7 @@ export class CampaignBatchDispatchService {
     const policyDecision = await this.policyEnforcement.evaluate(policyContext);
     if (!policyDecision.allowed) {
       campaign.recordTargetFailure(targetId, policyDecision.decisionReasoning, actor, correlationId);
-      return false;
+      return 'FAILED';
     }
 
     await this.eventRecorder.record({
@@ -190,7 +222,7 @@ export class CampaignBatchDispatchService {
           correlationId,
           EvidenceReference.create({ type: 'EMAIL_PROVIDER', externalId: response.providerMetadata.providerMessageId ?? applicationId, url: null }),
         );
-        return true;
+        return 'DISPATCHED';
       }
 
       // DEFERRED/UNSUPPORTED are provider-reported, non-ambiguous outcomes — record and fail the
@@ -209,7 +241,7 @@ export class CampaignBatchDispatchService {
         businessContext: { ...EMPTY_BUSINESS_CONTEXT, companyId, jobId, userId: campaign.ownerId, providerId: response.providerId },
       });
       campaign.recordTargetFailure(targetId, response.providerMessage, actor, correlationId);
-      return false;
+      return 'FAILED';
     } catch (error) {
       // An exception from provider.send() (network/timeout/infrastructure) is genuinely
       // indeterminate — the provider may or may not have received the request. Recorded
@@ -229,7 +261,7 @@ export class CampaignBatchDispatchService {
         businessContext: { ...EMPTY_BUSINESS_CONTEXT, companyId, jobId, userId: campaign.ownerId },
       });
       campaign.recordTargetFailure(targetId, `Delivery outcome unknown: ${message}`, actor, correlationId);
-      return false;
+      return 'FAILED';
     }
   }
 

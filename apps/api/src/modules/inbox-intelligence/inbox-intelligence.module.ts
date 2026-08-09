@@ -4,6 +4,7 @@ import { ExecutionModule } from '../execution/execution.module';
 import { ConnectedMailboxModule } from '../connected-mailbox/connected-mailbox.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { ApplicationsModule } from '../applications/applications.module';
+import { RecruitmentOperationsModule } from '../recruitment-operations/recruitment-operations.module';
 import { INBOX_WATCH_REPOSITORY } from './domain/ports/inbox-watch.repository';
 import { INBOX_MESSAGE_REPOSITORY } from './domain/ports/inbox-message.repository';
 import { INBOX_MESSAGE_CORRECTION_REPOSITORY } from './domain/ports/inbox-message-correction.repository';
@@ -57,7 +58,7 @@ import { AdminInboxIntelligenceController } from './presentation/controllers/adm
  * vendor integration; wiring one later is a one-line change to this binding, no other code change.
  */
 @Module({
-  imports: [CqrsModule, ExecutionModule, ConnectedMailboxModule, DocumentsModule, ApplicationsModule],
+  imports: [CqrsModule, ExecutionModule, ConnectedMailboxModule, DocumentsModule, ApplicationsModule, RecruitmentOperationsModule],
   controllers: [MailboxOAuthCallbackController, GmailInboxWebhookController, MicrosoftGraphInboxWebhookController, InboxIntelligenceController, AdminInboxIntelligenceController],
   providers: [
     { provide: INBOX_WATCH_REPOSITORY, useClass: PrismaInboxWatchRepository },

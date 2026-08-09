@@ -32,6 +32,18 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // M31 Phase 20/27 — real, immediate account suspension (Closed Beta admin operations /
+  // Emergency Stop "disable one user"). Checked on every authenticated request
+  // (`JwtStrategy.validate()`), not just at login — a suspended user's already-issued access
+  // token stops working immediately, it does not merely block future logins. Same
+  // boolean-flag-plus-reason shape this codebase already established for
+  // `ConnectedMailbox.userDisabled`/`systemSuspended`, reused for consistency rather than
+  // inventing a new status-enum shape for the same real concept.
+  accountSuspended       Boolean   @default(false)
+  accountSuspendedReason String?
+  accountSuspendedAt     DateTime?
+  accountSuspendedBy     String?
+
   company                Company?
   subscriptions          Subscription[]
   refreshToken           RefreshToken?
@@ -41,8 +53,45 @@ model User {
   oauthTransactions      OAuthTransaction[]
   notifications          Notification[]
   notificationPreference NotificationPreference?
+  followUpControls       ApplicationFollowUpControl[]
+  recruitmentTasks       RecruitmentActionTask[]
+  usedBetaInvitation     BetaInvitation?
 
   @@map("users")
+}
+
+// M31 Phase 20 — Closed Beta Access Control. A dedicated, real, first-class concept — never a
+// repurposed field on User — matching this codebase's own established "introduce a dedicated
+// model for a real, distinct concept" discipline (e.g. M30's `ApplicationFollowUpControl`, never
+// piggy-backed on an existing status field).
+enum BetaInvitationStatus {
+  PENDING
+  USED
+  REVOKED
+  EXPIRED
+}
+
+model BetaInvitation {
+  id                String               @id @default(uuid())
+  // Email-bound, not a generic shareable code — the real Closed Beta model the brief itself
+  // suggests ("Approved email allowlist" + "Admin-issued invitation codes" combined): a leaked
+  // code alone is not enough to register, since the registering email must match.
+  email             String
+  code              String               @unique
+  status            BetaInvitationStatus @default(PENDING)
+  invitedByAdminId  String
+  usedByUserId      String?              @unique
+  usedByUser        User?                @relation(fields: [usedByUserId], references: [id])
+  usedAt            DateTime?
+  revokedAt         DateTime?
+  revokedByAdminId  String?
+  revokedReason     String?
+  expiresAt         DateTime
+  createdAt         DateTime             @default(now())
+
+  @@index([email])
+  @@index([status])
+  @@map("beta_invitations")
 }
 
 model RefreshToken {
@@ -1538,6 +1587,38 @@ enum EmailSecurityAuditEventType {
   REPLY_DRAFT_APPROVED
   REPLY_SENT_BY_USER
   INBOX_REAUTHORIZATION_REQUIRED
+  // M30 — Recruitment Workflow Orchestration: follow-up control, eligibility, queue cancellation,
+  // application operational decisions, recruitment tasks, deadlines, and resume events.
+  FOLLOW_UP_CONTROL_CREATED
+  FOLLOW_UP_TEMPORARILY_HELD
+  FOLLOW_UP_PERMANENTLY_SUPPRESSED
+  FOLLOW_UP_RELEASED
+  FOLLOW_UP_HOLD_EXPIRED
+  FOLLOW_UP_ELIGIBILITY_CHECKED
+  QUEUED_FOLLOW_UP_CANCELLED
+  FOLLOW_UP_SEND_BLOCKED
+  FOLLOW_UP_RESUME_PROPOSED
+  FOLLOW_UP_RESUMED
+  APPLICATION_COMMAND_PROPOSED
+  APPLICATION_COMMAND_CONFIRMED
+  APPLICATION_COMMAND_EXECUTED
+  APPLICATION_COMMAND_REJECTED
+  APPLICATION_COMMAND_FAILED
+  APPLICATION_PROPOSAL_STALE
+  RECRUITMENT_TASK_CREATED
+  RECRUITMENT_TASK_COMPLETED
+  RECRUITMENT_TASK_DISMISSED
+  DEADLINE_CONFIRMED
+  DEADLINE_CORRECTED
+  OPERATIONAL_DECISION_FAILED
+  // M31 — Closed Beta access control and Emergency Stop actions.
+  BETA_INVITATION_CREATED
+  BETA_INVITATION_REVOKED
+  BETA_INVITATION_REDEEMED
+  ACCOUNT_SUSPENDED
+  ACCOUNT_UNSUSPENDED
+  EMERGENCY_STOP_ACTIVATED
+  EMERGENCY_STOP_DEACTIVATED
 }
 
 // Immutable, append-only audit trail for every attachment/sender/domain-readiness/connected-
@@ -2080,6 +2161,14 @@ enum NotificationKind {
   INBOX_CONNECTION_FAILURE
   REAUTHORIZATION_REQUIRED
   AMBIGUOUS_REPLY_REVIEW
+  // M30 additions
+  FOLLOW_UP_PAUSED
+  FOLLOW_UP_STOPPED
+  FOLLOW_UP_RESUME_AVAILABLE
+  OFFER_REVIEW_REQUIRED
+  MANUAL_REVIEW_REQUIRED
+  TRANSITION_EXECUTION_FAILED
+  TASK_OVERDUE
 }
 
 // M29 Phase 18 — the first real, durable, backend-sourced notification concept in this codebase
@@ -2120,8 +2209,191 @@ model NotificationPreference {
   assessmentInvitationEnabled  Boolean  @default(true)
   inboxConnectionIssuesEnabled Boolean  @default(true)
   ambiguousReplyReviewEnabled  Boolean  @default(true)
+  // M30 — new task/follow-up notification kinds get their own preference toggles, same reasoning
+  // as every other kind here: a user can silence one without affecting inbox reading or sending.
+  followUpControlChangedEnabled Boolean @default(true)
+  taskDeadlineEnabled            Boolean @default(true)
+  transitionExecutionFailedEnabled Boolean @default(true)
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 
   @@map("notification_preferences")
+}
+
+// =====================================================================================
+// Recruitment Workflow Orchestration (M30) — follow-up suppression, recruitment tasks,
+// and additive application operational-decision recording. See the `recruitment-operations`
+// module's own doc comments for the full architectural rationale (one-directional dependency:
+// inbox-intelligence -> recruitment-operations -> applications; execution-activation ->
+// recruitment-operations, never the reverse — no module here depends on inbox-intelligence or
+// execution-activation).
+// =====================================================================================
+
+// M30 Phase 3 — the dedicated follow-up-control concept (Non-Negotiable Principle #3: "introduce
+// a dedicated follow-up-control concept instead of corrupting existing campaign execution
+// history"). TEMPORARY_HOLD/WAITING_PERIOD both expire and are re-evaluated; PERMANENT_SUPPRESSION
+// never auto-expires (Phase 10: "do not automatically resume a permanently suppressed target");
+// MANUAL_REVIEW_HOLD covers AMBIGUOUS/LOW-CONFIDENCE classifications (never mutates workflow state
+// on its own); DELIVERABILITY_BLOCK is the DELIVERY_FAILURE case — updates delivery state only,
+// never an employment-outcome signal, and (Phase 16) may never be manually released by a candidate.
+enum FollowUpControlType {
+  TEMPORARY_HOLD
+  PERMANENT_SUPPRESSION
+  WAITING_PERIOD
+  MANUAL_REVIEW_HOLD
+  DELIVERABILITY_BLOCK
+}
+
+enum FollowUpControlStatus {
+  ACTIVE
+  RELEASED
+  EXPIRED
+  SUPERSEDED
+}
+
+// M30 Phase 3 — "enforce one coherent active control decision per applicable scope": the real
+// backstop is a partial unique index on (applicationId) WHERE status = 'ACTIVE', added by raw SQL
+// in this migration (Prisma schema syntax has no conditional-index support) — the same established
+// pattern as `connected_mailboxes_active_per_user_unique` (M28.6) and
+// `candidate_documents_active_version_unique` (M28.5). `applicationId` is the reliable identifier
+// (Phase 1 audit confirmed `Application` has no indexed, queryable campaign back-reference —
+// `ConnectedMailboxSendAttempt.applicationId`/`.campaignId` is the real bridge every write here
+// goes through); `campaignId`/`companyId`/`jobId` are denormalized for query convenience only,
+// never the source of truth for "is this application under an active control."
+model ApplicationFollowUpControl {
+  id            String @id @default(uuid())
+  userId        String
+  user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId String
+  campaignId    String?
+  companyId     String?
+  jobId         String?
+
+  sourceInboxMessageId    String?
+  sourceProviderMessageId String?
+
+  controlType FollowUpControlType
+  status      FollowUpControlStatus @default(ACTIVE)
+  reasonCode  String
+  explanation String
+
+  classification ReplyPrimaryCategory?
+  confidence     Float?
+  evidence       Json?
+
+  createdByActorType String   @default("SYSTEM")
+  createdByActorId   String?
+  createdAt          DateTime @default(now())
+  effectiveAt        DateTime @default(now())
+  expiresAt          DateTime?
+
+  releasedAt     DateTime?
+  releasedBy     String?
+  releaseReason  String?
+
+  correlationId  String?
+  idempotencyKey String  @unique
+  version        Int     @default(1)
+  updatedAt      DateTime @updatedAt
+
+  @@index([applicationId, status])
+  @@index([campaignId])
+  @@index([status, expiresAt])
+  @@index([userId])
+  @@map("application_follow_up_controls")
+}
+
+// M30 Phase 8 — the first user-facing recruitment task/action-item concept in this codebase
+// (Phase 1 audit confirmed no prior art exists — `ExecutionTask` is an internal execution-engine
+// work unit, not a candidate-facing to-do). Deliberately application-scoped, never campaign- or
+// target-scoped, matching `ApplicationFollowUpControl`'s own identifier choice.
+enum RecruitmentTaskType {
+  CONFIRM_INTERVIEW
+  SELECT_INTERVIEW_SLOT
+  PREPARE_INTERVIEW
+  UPLOAD_REQUESTED_DOCUMENT
+  SEND_REQUESTED_DOCUMENT
+  PROVIDE_INFORMATION
+  COMPLETE_ASSESSMENT
+  REVIEW_OFFER
+  FOLLOW_UP_AFTER_DATE
+  MANUAL_REPLY_REVIEW
+  REAUTHORIZE_INBOX
+  RECONNECT_MAILBOX
+}
+
+enum RecruitmentTaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  DISMISSED
+  EXPIRED
+}
+
+model RecruitmentActionTask {
+  id            String @id @default(uuid())
+  userId        String
+  user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId String
+  companyId     String?
+  jobId         String?
+
+  sourceInboxMessageId String?
+
+  taskType    RecruitmentTaskType
+  title       String
+  explanation String
+  evidence    Json?
+  priority    String              @default("NORMAL")
+
+  dueAt              DateTime?
+  dueDateConfidence  String?
+  originalDateText   String?
+  deadlineReminderSentAt DateTime?
+
+  status        RecruitmentTaskStatus @default(OPEN)
+  completedAt   DateTime?
+  dismissedAt   DateTime?
+  dismissReason String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  correlationId  String?
+  idempotencyKey String   @unique
+
+  @@index([userId, status])
+  @@index([applicationId])
+  @@index([status, dueAt])
+  @@map("recruitment_action_tasks")
+}
+
+// M30 Phase 6 — additive-only operational signals for the 6 proposed application actions that have
+// no real `ApplicationLifecycleStatus` slot (confirmed via Phase 1 audit: the 15-value lifecycle
+// enum and its transition graph is a deliberately closed set; adding new lifecycle states would be
+// a real domain state-machine change, out of this milestone's autonomous scope). These NEVER touch
+// `Application.status` — they are a parallel, additive record of a real operational signal, exactly
+// the Phase 18 "ApplicationOperationalDecision" concept the brief itself names.
+enum ApplicationOperationalDecisionType {
+  DOCUMENTS_REQUESTED
+  INFORMATION_REQUESTED
+  ASSESSMENT_INVITED
+  UNDER_REVIEW
+  WAITING
+  OFFER_EVIDENCE_RECORDED
+}
+
+model ApplicationOperationalDecision {
+  id             String                             @id @default(uuid())
+  applicationId  String
+  decisionType   ApplicationOperationalDecisionType
+  actorType      String                              @default("SYSTEM")
+  actorId        String?
+  reason         String?
+  evidence       Json?
+  correlationId  String?
+  createdAt      DateTime                            @default(now())
+  idempotencyKey String                              @unique
+
+  @@index([applicationId, decisionType])
+  @@map("application_operational_decisions")
 }

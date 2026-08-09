@@ -162,8 +162,87 @@ describe('Application', () => {
 
     it('archives from any non-terminal state and even from a terminal one', () => {
       const application = createApplication();
-      application.archive(Actor.admin('admin-1'), correlationId());
+      const reason = TransitionReason.create(TransitionReasonCode.CANDIDATE_REQUEST);
+      application.archive(Actor.admin('admin-1'), correlationId(), null, reason);
       expect(application.status).toBe(ApplicationLifecycleStatus.ARCHIVED);
+    });
+  });
+
+  // M31.1 — real ownership enforcement for archive(), replacing the previously trivially-
+  // permissive ArchivalPolicy. Domain-layer tests (the authoritative boundary); handler/command-
+  // level tests (cross-user enumeration, invalid application, concurrency) live in
+  // archive-application.handler.spec.ts.
+  describe('archive() authorization', () => {
+    it('allows the owning candidate to archive their own application', () => {
+      const application = createApplication();
+      application.archive(Actor.candidate(CANDIDATE_ID), correlationId(), null);
+      expect(application.status).toBe(ApplicationLifecycleStatus.ARCHIVED);
+    });
+
+    it('denies a different candidate from archiving an application they do not own', () => {
+      const application = createApplication();
+      expect(() => application.archive(Actor.candidate('someone-else'), correlationId(), null)).toThrow(
+        UnauthorizedApplicationActionException,
+      );
+      expect(application.status).toBe(ApplicationLifecycleStatus.DRAFT);
+    });
+
+    it('allows the owning company (the employer user id matching the resolved companyOwnerId) to archive', () => {
+      const application = createApplication();
+      application.archive(Actor.company('employer-user-1'), correlationId(), 'employer-user-1');
+      expect(application.status).toBe(ApplicationLifecycleStatus.ARCHIVED);
+    });
+
+    it('denies a company actor whose user id does not match the resolved companyOwnerId', () => {
+      const application = createApplication();
+      expect(() =>
+        application.archive(Actor.company('employer-user-1'), correlationId(), 'a-different-employer-user'),
+      ).toThrow(UnauthorizedApplicationActionException);
+      expect(application.status).toBe(ApplicationLifecycleStatus.DRAFT);
+    });
+
+    it('denies a company actor when companyOwnerId could not be resolved at all (null)', () => {
+      const application = createApplication();
+      expect(() => application.archive(Actor.company('employer-user-1'), correlationId(), null)).toThrow(
+        UnauthorizedApplicationActionException,
+      );
+    });
+
+    it('denies an admin archiving without a reason', () => {
+      const application = createApplication();
+      expect(() => application.archive(Actor.admin('admin-1'), correlationId(), null)).toThrow(
+        UnauthorizedApplicationActionException,
+      );
+      expect(application.status).toBe(ApplicationLifecycleStatus.DRAFT);
+    });
+
+    it('allows an admin archiving with a reason, and records it on the raised event and timeline', () => {
+      const application = createApplication();
+      const reason = TransitionReason.create(TransitionReasonCode.CANDIDATE_REQUEST, 'cleanup');
+      application.archive(Actor.admin('admin-1'), correlationId(), null, reason);
+
+      expect(application.status).toBe(ApplicationLifecycleStatus.ARCHIVED);
+      const archivedEvent = application.domainEvents.find((event) => event.constructor.name === 'ApplicationArchived');
+      expect(archivedEvent).toBeDefined();
+      expect((archivedEvent as unknown as { reason: TransitionReason | null }).reason).toBe(reason);
+      const lastEntry = application.timeline.entries()[application.timeline.entries().length - 1];
+      expect(lastEntry.reason).toBe(reason);
+      expect(lastEntry.actor.role).toBe('ADMIN');
+    });
+
+    it('allows a system actor to archive without a reason', () => {
+      const application = createApplication();
+      application.archive(Actor.system('retention-job'), correlationId(), null);
+      expect(application.status).toBe(ApplicationLifecycleStatus.ARCHIVED);
+    });
+
+    it('cannot be bypassed by a direct call that skips the handler-level pre-check — the domain itself is the authority', () => {
+      // No handler, no assertCanAccessApplication — calling the aggregate method directly, the
+      // way a future caller or a bypassed command bus might, still enforces ownership.
+      const application = createApplication();
+      expect(() => application.archive(Actor.candidate('an-unrelated-candidate'), correlationId(), null)).toThrow(
+        UnauthorizedApplicationActionException,
+      );
     });
   });
 

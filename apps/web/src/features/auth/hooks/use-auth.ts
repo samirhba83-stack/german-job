@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useTrackedMutation } from '@/lib/hooks/use-tracked-mutation';
 import * as authApi from '../api/auth.api';
-import type { LoginRequestDto } from '../types';
+import type { LoginRequestDto, RegisterRequestDto } from '../types';
 
 /**
  * The one hook every auth-adjacent screen/component uses — never calls features/auth/api or
@@ -38,7 +38,7 @@ export function useAuth() {
 
   const registerMutation = useTrackedMutation({
     activityLabel: 'Creating your account',
-    mutationFn: (payload: LoginRequestDto) => authApi.register(payload),
+    mutationFn: (payload: RegisterRequestDto) => authApi.register(payload),
     onSuccess: (tokens) => {
       // Redirects to the shell root, not /onboarding — the Onboarding Wizard
       // (docs/frontend-architecture/03-screen-inventory.md) is page-implementation scope this

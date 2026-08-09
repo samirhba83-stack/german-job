@@ -25,7 +25,7 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('register')
   async register(@Body() dto: RegisterDto): Promise<AuthTokensDto> {
-    return this.commandBus.execute(new RegisterCommand(dto.email, dto.password));
+    return this.commandBus.execute(new RegisterCommand(dto.email, dto.password, dto.invitationCode));
   }
 
   /** Stricter than the global default — the primary credential-stuffing / brute-force target. */

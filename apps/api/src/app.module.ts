@@ -6,7 +6,8 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { configurations } from './config/configuration';
 import { AppThrottlerGuard } from './common/guards/throttler.guard';
 import { PrismaModule } from './shared/infrastructure/database/prisma.module';
-import { LoggerModule } from './shared/infrastructure/logger/logger.module';
+import { ObservabilityModule } from './shared/infrastructure/observability/observability.module';
+import { EnvironmentModule } from './shared/infrastructure/environment/environment.module';
 import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -17,7 +18,9 @@ import { ApplicationsModule } from './modules/applications/applications.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { ExecutionActivationModule } from './modules/execution-activation/execution-activation.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { RecruitmentOperationsModule } from './modules/recruitment-operations/recruitment-operations.module';
 import { InboxIntelligenceModule } from './modules/inbox-intelligence/inbox-intelligence.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
 
 /**
  * BillingModule (M27) is mounted here for the first time — the M26-era Stripe stub is gone
@@ -44,7 +47,8 @@ import { InboxIntelligenceModule } from './modules/inbox-intelligence/inbox-inte
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     ScheduleModule.forRoot(),
     PrismaModule,
-    LoggerModule,
+    ObservabilityModule,
+    EnvironmentModule,
     HealthModule,
     UsersModule,
     AuthModule,
@@ -55,7 +59,9 @@ import { InboxIntelligenceModule } from './modules/inbox-intelligence/inbox-inte
     CampaignsModule,
     ExecutionActivationModule,
     BillingModule,
+    RecruitmentOperationsModule,
     InboxIntelligenceModule,
+    OnboardingModule,
   ],
   providers: [
     {

@@ -58,6 +58,25 @@ export class ConnectedMailboxReadinessService {
       reasons.push('Connected-mailbox production sending is not enabled.');
     }
 
+    // M31 Phase 26 / M31.1 Phase 17 — the explicit, named gate for this milestone's single most
+    // important non-negotiable business rule (see `production-safety.config.ts`'s own doc comment
+    // for why this is a SECOND, independent flag rather than folded into `productionEnabled`
+    // above): no application ever reaches a real company without separate Product Owner approval,
+    // checked here specifically because this is the one real gate every application-send call
+    // passes through, regardless of which upstream flow triggered it.
+    //
+    // The one real exception: a recipient on the explicit `TEST_RECIPIENT_ALLOWLIST` is permitted
+    // even while `realCompanyOutreachEnabled` is false — this is what makes doc 21's Stage 1 ("real
+    // connected mailboxes, test recipients only, real company outreach stays off") an actually
+    // exercisable state rather than a description of something the code doesn't yet support. An
+    // empty allowlist (the default) approves nothing — this is a fail-closed allowlist, never a
+    // fallback permitting everyone.
+    const realCompanyOutreachEnabled = this.config.get<boolean>('productionSafety.realCompanyOutreachEnabled', false);
+    const isApprovedTestRecipient = this.isOnTestRecipientAllowlist(input.recipientEmailAddress);
+    if (!realCompanyOutreachEnabled && !isApprovedTestRecipient) {
+      reasons.push('TEST_RECIPIENT_POLICY_BLOCKED: recipient is not on the approved test-recipient allowlist, and real company outreach is not enabled for this deployment.');
+    }
+
     const suppressed = await this.deliverability.isSuppressed(input.recipientEmailAddress);
     if (suppressed) {
       reasons.push('Recipient is on the suppression list.');
@@ -82,6 +101,19 @@ export class ConnectedMailboxReadinessService {
     const ready = reasons.length === 0;
     await this.recordOutcome(mailbox.id, input.userId, ready, reasons);
     return { ready, mailbox, blockingReasons: reasons };
+  }
+
+  /** M31.1 Phase 17 — exact-address or `@domain` wildcard match, case-insensitive. Fails closed:
+   * a malformed/empty recipient address never accidentally matches a wildcard entry. */
+  private isOnTestRecipientAllowlist(recipientEmailAddress: string): boolean {
+    const allowlist = this.config.get<ReadonlyArray<string>>('productionSafety.testRecipientAllowlist', []);
+    if (allowlist.length === 0 || !recipientEmailAddress) return false;
+
+    const normalized = recipientEmailAddress.trim().toLowerCase();
+    const atIndex = normalized.lastIndexOf('@');
+    const domain = atIndex >= 0 ? normalized.slice(atIndex) : '';
+
+    return allowlist.some((entry) => entry === normalized || (entry.startsWith('@') && entry === domain));
   }
 
   private checkMailboxState(mailbox: ConnectedMailboxRecord, reasons: string[]): void {

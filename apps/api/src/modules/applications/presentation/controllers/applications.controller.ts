@@ -342,6 +342,8 @@ export class ApplicationsController {
 
   @ApiOperation({ summary: 'Archive the application — the owning Candidate, the owning Employer, or Admin only' })
   @ApiResponse({ status: 201, type: ApplicationResponseDto })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.CANDIDATE, UserRole.EMPLOYER, UserRole.ADMIN)
   @Post(':id/archive')
   async archive(
     @Param('id') id: string,

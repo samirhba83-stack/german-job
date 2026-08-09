@@ -59,7 +59,9 @@ function mailbox(overrides: Partial<ConnectedMailboxRecord> = {}): ConnectedMail
   };
 }
 
-function harness(configOverrides: Record<string, unknown> = { 'connectedMailbox.productionSendingEnabled': true }) {
+const READY_CONFIG = { 'connectedMailbox.productionSendingEnabled': true, 'productionSafety.realCompanyOutreachEnabled': true };
+
+function harness(configOverrides: Record<string, unknown> = READY_CONFIG) {
   const mailboxes: jest.Mocked<ConnectedMailboxRepository> = {
     findById: jest.fn(),
     findActiveByUserId: jest.fn().mockResolvedValue(mailbox()),
@@ -93,6 +95,43 @@ describe('ConnectedMailboxReadinessService', () => {
     const result = await service.checkReadiness({ userId: 'user-1', recipientEmailAddress: 'r@example.de' });
     expect(result.ready).toBe(false);
     expect(result.blockingReasons.some((r) => r.includes('not enabled'))).toBe(true);
+  });
+
+  it('blocks when real company outreach is not enabled and the recipient is not an approved test recipient, even with production sending otherwise on (M31 Phase 26 — the two flags are independent)', async () => {
+    const { service } = harness({ 'connectedMailbox.productionSendingEnabled': true });
+    const result = await service.checkReadiness({ userId: 'user-1', recipientEmailAddress: 'r@example.de' });
+    expect(result.ready).toBe(false);
+    expect(result.blockingReasons.some((r) => r.startsWith('TEST_RECIPIENT_POLICY_BLOCKED'))).toBe(true);
+  });
+
+  it('M31.1 Phase 17 — allows a send to an approved test-recipient allowlist entry even while real company outreach is disabled', async () => {
+    const { service } = harness({
+      'connectedMailbox.productionSendingEnabled': true,
+      'productionSafety.realCompanyOutreachEnabled': false,
+      'productionSafety.testRecipientAllowlist': ['approved-tester@example.com'],
+    });
+    const result = await service.checkReadiness({ userId: 'user-1', recipientEmailAddress: 'Approved-Tester@Example.com' });
+    expect(result.ready).toBe(true);
+  });
+
+  it('M31.1 Phase 17 — allows a send to a recipient matching an approved @domain wildcard entry', async () => {
+    const { service } = harness({
+      'connectedMailbox.productionSendingEnabled': true,
+      'productionSafety.realCompanyOutreachEnabled': false,
+      'productionSafety.testRecipientAllowlist': ['@approved-test-domain.example'],
+    });
+    const result = await service.checkReadiness({ userId: 'user-1', recipientEmailAddress: 'anyone@approved-test-domain.example' });
+    expect(result.ready).toBe(true);
+  });
+
+  it('M31.1 Phase 17 — an empty allowlist approves nobody (fails closed, never falls back to "allow everyone")', async () => {
+    const { service } = harness({
+      'connectedMailbox.productionSendingEnabled': true,
+      'productionSafety.realCompanyOutreachEnabled': false,
+      'productionSafety.testRecipientAllowlist': [],
+    });
+    const result = await service.checkReadiness({ userId: 'user-1', recipientEmailAddress: 'anyone@example.com' });
+    expect(result.ready).toBe(false);
   });
 
   it('blocks when the recipient is on the suppression list', async () => {

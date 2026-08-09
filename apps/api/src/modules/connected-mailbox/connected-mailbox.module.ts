@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { ExecutionModule } from '../execution/execution.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { DeliverabilityModule } from '../deliverability/deliverability.module';
@@ -36,9 +37,15 @@ import { AdminConnectedMailboxController } from './presentation/controllers/admi
  * Exports `ConnectedMailboxSendService` — the one thing `execution-activation`'s
  * `campaign-execution-task-handler.module.ts` needs to route candidate-application dispatch here
  * instead of the platform sender (see that module's own doc comment for the M28.6 rewire).
+ *
+ * M30 fix — several providers here (`AesGcmTokenVaultAdapter`, `GmailMailboxProviderAdapter`,
+ * `MicrosoftOutlookMailboxProviderAdapter`, `MailboxConnectionService`,
+ * `ConnectedMailboxRateLimiterService`, `ConnectedMailboxReadinessService`) inject `ConfigService`
+ * directly but this module never imported `ConfigModule` (same pre-existing gap found and fixed
+ * in `DocumentsModule`/`EmailProviderModule`/`BillingModule` — see their doc comments).
  */
 @Module({
-  imports: [ExecutionModule, DocumentsModule, DeliverabilityModule],
+  imports: [ExecutionModule, DocumentsModule, DeliverabilityModule, ConfigModule],
   controllers: [MailboxConnectionsController, AdminConnectedMailboxController],
   providers: [
     { provide: CONNECTED_MAILBOX_REPOSITORY, useClass: PrismaConnectedMailboxRepository },

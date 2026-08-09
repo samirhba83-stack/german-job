@@ -7,6 +7,7 @@ import {
   CompanyStatus,
 } from '@german-job-engine/shared-types';
 import type { ConnectedMailboxStatus, InboxCapabilityStatus, ReplyPrimaryCategory, InboxMessageReviewStatus } from '@german-job-engine/shared-types';
+import type { FollowUpControlStatus, RecruitmentTaskStatus } from '@german-job-engine/shared-types';
 import type { BadgeTone } from '@/components/ui/badge';
 
 /**
@@ -141,6 +142,23 @@ export const INBOX_MESSAGE_REVIEW_STATUS_TONE: Record<InboxMessageReviewStatus, 
   REJECTED: 'neutral',
   AUTO_ACCEPTED: 'positive',
   UNRELATED_CONFIRMED: 'neutral',
+};
+
+/** M30 — the real 4-value `FollowUpControlStatus` union. */
+export const FOLLOW_UP_CONTROL_STATUS_TONE: Record<FollowUpControlStatus, BadgeTone> = {
+  ACTIVE: 'warning',
+  RELEASED: 'neutral',
+  EXPIRED: 'neutral',
+  SUPERSEDED: 'neutral',
+};
+
+/** M30 — the real 5-value `RecruitmentTaskStatus` union. */
+export const RECRUITMENT_TASK_STATUS_TONE: Record<RecruitmentTaskStatus, BadgeTone> = {
+  OPEN: 'warning',
+  IN_PROGRESS: 'info',
+  COMPLETED: 'positive',
+  DISMISSED: 'neutral',
+  EXPIRED: 'critical',
 };
 
 /** Human-readable label — real enum value, title-cased, never a paraphrase that could drift

@@ -16,6 +16,10 @@ out/
 .env.local
 .env.*.local
 
+# M31 Phase 13 — real database dumps (scripts/backup-database.sh's default output dir) must
+# never be committed — a backup file is, by definition, real user/candidate data.
+backups/
+
 # prisma
 packages/database/prisma/migrations/dev.db
 

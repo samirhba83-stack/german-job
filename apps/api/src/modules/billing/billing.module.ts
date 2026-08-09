@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { UsersModule } from '../users/users.module';
 import { EmailProviderModule } from '../email-provider/email-provider.module';
 import { BillingController } from './presentation/controllers/billing.controller';
@@ -41,9 +42,16 @@ import { BillingProductionSafetyService } from './application/services/billing-p
  * constraints (`webhook-and-checkout-dedup.concurrency.spec.ts`, run via `pnpm test:concurrency`).
  * No controller-level e2e suite exists yet for this module — a real, named gap, not silently
  * assumed covered.
+ *
+ * M30 fix — `PaddlePaymentAdapter` and several application services here inject `ConfigService`
+ * directly but this module never imported `ConfigModule` (same pre-existing, only-visible-in-a-
+ * partial-testing-module gap found and fixed in `DocumentsModule`/`EmailProviderModule` — see
+ * their doc comments). Importing `EmailProviderModule` does not transitively re-export
+ * `ConfigModule` (Nest modules don't re-export their own imports unless explicitly listed in
+ * `exports`), so this needs its own explicit import.
  */
 @Module({
-  imports: [UsersModule, EmailProviderModule],
+  imports: [UsersModule, EmailProviderModule, ConfigModule],
   controllers: [BillingController, BillingWebhookController, AdminBillingController],
   providers: [
     { provide: SUBSCRIPTION_REPOSITORY, useClass: PrismaSubscriptionRepository },

@@ -22,6 +22,16 @@ export class UserMapper {
       password: user.passwordHash,
       role: user.role as unknown as PrismaUser['role'],
       createdAt: user.createdAt,
+      // M31 Phase 20 — suspension state is deliberately NOT part of the `User` domain entity
+      // (it's an administrative concern applied via `UserRepository.suspend()`/`unsuspend()`
+      // directly, never through this entity's own create/save flow) — a freshly created/saved
+      // entity always maps to the neutral, not-suspended default here; `upsert`'s `update` branch
+      // (below, in `PrismaUserRepository.save()`) never touches these fields either, so an
+      // existing suspension is never accidentally cleared by an unrelated profile save.
+      accountSuspended: false,
+      accountSuspendedReason: null,
+      accountSuspendedAt: null,
+      accountSuspendedBy: null,
     };
   }
 }

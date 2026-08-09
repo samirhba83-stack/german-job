@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ExecutionClock, EXECUTION_CLOCK } from '../../../execution/domain/ports/execution-clock.port';
+import { MetricsPort, METRICS_PORT } from '../../../../shared/infrastructure/observability/metrics/metrics.port';
 import { EmailQueueRepository, EMAIL_QUEUE_REPOSITORY } from '../../domain/ports/email-queue.repository';
 import {
   EmailProviderWebhookEventRepository,
@@ -12,7 +14,7 @@ import { SendGridWebhookVerifier, SendGridWebhookVerificationError } from '../..
 import { SesSnsVerifier, SesSnsVerificationError } from '../../infrastructure/webhooks/ses-sns-verifier';
 import { DeliverabilityService } from './deliverability.service';
 
-export type EmailWebhookOutcome = 'PROCESSED' | 'DUPLICATE' | 'REJECTED' | 'MESSAGE_NOT_FOUND' | 'IGNORED_UNKNOWN_TYPE';
+export type EmailWebhookOutcome = 'PROCESSED' | 'DUPLICATE' | 'REJECTED' | 'MESSAGE_NOT_FOUND' | 'IGNORED_UNKNOWN_TYPE' | 'PROCESSING_DISABLED';
 
 /**
  * M28 — the real webhook intake for all three event-capable providers (Resend/SES/SendGrid;
@@ -35,6 +37,8 @@ export class EmailWebhookProcessingService {
     @Inject(EMAIL_QUEUE_REPOSITORY) private readonly queue: EmailQueueRepository,
     private readonly deliverability: DeliverabilityService,
     @Inject(EXECUTION_CLOCK) private readonly clock: ExecutionClock,
+    private readonly config: ConfigService,
+    @Inject(METRICS_PORT) private readonly metrics: MetricsPort,
   ) {}
 
   async processResend(rawBody: Buffer, headers: { svixId?: string; svixTimestamp?: string; svixSignature?: string }): Promise<EmailWebhookOutcome> {
@@ -91,10 +95,18 @@ export class EmailWebhookProcessingService {
   }
 
   private async dispatch(provider: string, event: NormalizedWebhookEvent, rawBody: Buffer): Promise<EmailWebhookOutcome> {
+    // M31.1 Phase 11 — real doc 13 "Webhook failures" catalogue metric. Recorded once per real
+    // outcome via this single return-path wrapper, so every branch below (including ones added in
+    // the future) is covered by construction rather than requiring a metric call at every return.
+    const record = (outcome: EmailWebhookOutcome): EmailWebhookOutcome => {
+      this.metrics.incrementCounter('email_webhook.outcome', { provider, outcome });
+      return outcome;
+    };
+
     const existing = await this.webhookEvents.findByProviderEventId(provider, event.providerEventId);
     if (existing) {
       this.logger.log(`Duplicate ${provider} webhook event ${event.providerEventId} — already ${existing.status}, ignoring.`);
-      return 'DUPLICATE';
+      return record('DUPLICATE');
     }
 
     const rawPayloadHash = createHash('sha256').update(rawBody).digest('hex');
@@ -109,7 +121,19 @@ export class EmailWebhookProcessingService {
     const message = await this.queue.findByProviderMessageId(provider, event.providerMessageId);
     if (!message) {
       this.logger.warn(`${provider} webhook event ${event.providerEventId} references unknown providerMessageId "${event.providerMessageId}" — left at RECEIVED for review.`);
-      return 'MESSAGE_NOT_FOUND';
+      return record('MESSAGE_NOT_FOUND');
+    }
+
+    // M31 Phase 26 — the real, additional Production Safety Flag: this provider's own real-world
+    // webhook certification (Phase 9/10/11) is prepared but not yet executed, so the mutating side
+    // effect (marking delivered/bounced/complained/opened/clicked) stays off by default even
+    // though the event is authenticated and durably recorded above. The caller still gets a real,
+    // provider-expected acknowledgement (see the controller) — this is "acknowledge but do not
+    // act," never a silent drop and never a failure response that would make the provider retry-
+    // storm or disable the subscription.
+    if (!this.config.get<boolean>('productionSafety.productionWebhookProcessingEnabled', false)) {
+      this.logger.warn(`${provider} webhook event ${event.providerEventId} authenticated and recorded, but production webhook processing is disabled — skipped.`);
+      return record('PROCESSING_DISABLED');
     }
 
     switch (event.eventType) {
@@ -133,11 +157,11 @@ export class EmailWebhookProcessingService {
         break;
       default:
         this.logger.warn(`${provider} webhook event ${event.providerEventId} has an unrecognized type — left at RECEIVED.`);
-        return 'IGNORED_UNKNOWN_TYPE';
+        return record('IGNORED_UNKNOWN_TYPE');
     }
 
     await this.webhookEvents.markProcessed(recordId, this.clock.now());
-    return 'PROCESSED';
+    return record('PROCESSED');
   }
 
   private async reject(provider: string, rawBody: Buffer, error: unknown, providerEventIdHint?: string): Promise<EmailWebhookOutcome> {
@@ -155,6 +179,7 @@ export class EmailWebhookProcessingService {
     });
     await this.webhookEvents.markRejected(recordId, reason, this.clock.now());
     this.logger.warn(`Rejected ${provider} webhook: ${reason}`);
+    this.metrics.incrementCounter('email_webhook.outcome', { provider, outcome: 'REJECTED' });
     return 'REJECTED';
   }
 

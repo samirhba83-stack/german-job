@@ -80,6 +80,18 @@ export class GmailInboxWebhookController {
     }
 
     await this.audit.record({ eventType: 'INBOX_CHANGE_RECEIVED', userId: mailbox.userId, connectedMailboxId: mailbox.id, detail: 'Gmail push notification received.' });
+
+    // M31 Phase 26 — the real Production Safety Flag: real-world Gmail Pub/Sub certification
+    // (Phase 9) is prepared but not yet executed against a real Google Cloud project. The
+    // notification is authenticated and audited above either way; polling (which would fetch and
+    // act on real inbox history) stays off by default. Google does not require any particular
+    // response body for a push ack, only a 2xx within its own deadline — the 204 below still
+    // satisfies that regardless of this flag, so this never risks Google disabling the subscription.
+    if (!this.config.get<boolean>('productionSafety.productionWebhookProcessingEnabled', false)) {
+      this.logger.warn(`Gmail push notification for "${payload.emailAddress}" authenticated and audited, but production webhook processing is disabled — polling skipped.`);
+      return;
+    }
+
     await this.polling.pollMailbox(mailbox);
   }
 }

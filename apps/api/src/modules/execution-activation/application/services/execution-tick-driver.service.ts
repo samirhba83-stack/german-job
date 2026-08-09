@@ -41,6 +41,14 @@ export class ExecutionTickDriverService implements OnModuleInit, OnModuleDestroy
   ) {}
 
   onModuleInit(): void {
+    // M31 Phase 3/4 — real API/Worker process split; see `EmailQueueWorkerService`'s identical gate
+    // for the full reasoning. This tick's own per-campaign work is separately safe under real
+    // multi-instance concurrency (the entry point's Postgres distributed lock), so this gate exists
+    // for topological cleanliness, not correctness.
+    if (!this.config.get<boolean>('app.runTicks', true)) {
+      this.logger.log('RUN_TICKS=false — execution activation tick not registered on this process.');
+      return;
+    }
     if (!this.config.get<boolean>('executionActivation.enabled', true)) {
       this.logger.warn('Execution activation is disabled (EXECUTION_ACTIVATION_ENABLED=false) — no tick interval registered.');
       return;

@@ -14,11 +14,16 @@ import { checkPrivacyGate } from '../../domain/services/privacy-filter-policy';
 import { normalizeProviderMessage } from '../../domain/services/content-normalizer';
 import { classifyByRules } from '../../domain/services/reply-rule-engine';
 import { decideReplyAction } from '../../domain/services/reply-decision-policy';
-import { ReplyPrimaryCategory, ReplySecondaryLabel } from '../../domain/models/reply-taxonomy';
+import { decideOperationalAction } from '../../domain/services/reply-operational-decision-policy';
+import { ReplyPrimaryCategory } from '../../domain/models/reply-taxonomy';
+import { ExtractedRecruitmentFacts, DateExtraction } from '../../domain/models/extracted-facts';
 import { InboxAccessTokenService } from './inbox-access-token.service';
 import { ApplicationTransitionProposalService } from './application-transition-proposal.service';
 import { NotificationService } from './notification.service';
 import { NotificationKind } from '../../domain/models/notification';
+import { FollowUpControlService } from '../../../recruitment-operations/application/services/follow-up-control.service';
+import { RecruitmentTaskService } from '../../../recruitment-operations/application/services/recruitment-task.service';
+import { RecruitmentTaskType } from '../../../recruitment-operations/domain/models/recruitment-task';
 
 const EXCERPT_MAX_LENGTH = 600;
 
@@ -51,6 +56,8 @@ export class ReplyIngestionService {
     private readonly accessTokens: InboxAccessTokenService,
     private readonly transitionProposals: ApplicationTransitionProposalService,
     private readonly notifications: NotificationService,
+    private readonly followUpControls: FollowUpControlService,
+    private readonly recruitmentTasks: RecruitmentTaskService,
     private readonly audit: EmailSecurityAuditService,
     private readonly config: ConfigService,
   ) {}
@@ -239,7 +246,7 @@ export class ReplyIngestionService {
       }
     }
 
-    await this.recordFollowupPauseIfWarranted(mailbox.userId, correlation.correlatedCampaignId, correlation.correlatedApplicationId, created.id, finalCategory, finalSecondaryLabels);
+    await this.applyOperationalDecision(mailbox.userId, correlation.correlatedCampaignId, correlation.correlatedApplicationId, created.id, metadata.providerMessageId, finalCategory, finalExtractedFacts, finalConfidence, finalEvidence, created.id);
 
     const notificationKind = NOTIFICATION_KIND_BY_CATEGORY[finalCategory];
     if (notificationKind) {
@@ -278,43 +285,112 @@ export class ReplyIngestionService {
   }
 
   /**
-   * M29 Phase 14 — "stop follow-ups after a relevant human reply/rejection/interview invitation."
-   * Deliberately lives here (not a separate `CompanyReplied` EventBus subscriber) because the real
-   * campaign id is only available from THIS message's own correlation
-   * (`ConnectedMailboxSendAttempt.campaignId`, captured at send time) — `Application` itself has
-   * no `campaignId` back-reference (a pre-existing, confirmed fact from the M23 audit), so a
-   * downstream subscriber reacting to `CompanyReplied` alone could never reliably re-derive which
-   * campaign to pause.
+   * M29 Phase 14 / M30 Phase 2-5 — real follow-up suppression + recruitment task creation, using
+   * `decideOperationalAction()` (the M30 operational decision matrix) to translate a classified
+   * reply into a real `ApplicationFollowUpControl` and (where warranted) a real
+   * `RecruitmentActionTask`. Deliberately lives here (not a separate `CompanyReplied` EventBus
+   * subscriber) because the real campaign id is only available from THIS message's own
+   * correlation (`ConnectedMailboxSendAttempt.campaignId`, captured at send time) — `Application`
+   * itself has no queryable `campaignId` back-reference (M23/M30 audit).
    *
-   * Scoped honestly: this milestone records a real, auditable `CAMPAIGN_FOLLOWUP_PAUSED` event —
-   * the durable signal an operator or a future automated dispatcher can act on — but does NOT
-   * itself mutate any `CampaignTarget` status. `CampaignTarget.markSkipped()` is designed for
-   * PRE-dispatch skipping (an unconditional status overwrite with no "already dispatched" guard);
-   * calling it after a target has already been successfully dispatched would incorrectly rewrite
-   * genuine send history, not express "stop future follow-ups to this one." Building a real,
-   * dispatch-history-safe exclusion command belongs to the campaigns module's own bounded context
-   * and would need that module's dispatch/retry engine investigated in full — deliberately not
-   * guessed at here against a live, already-approved production execution path (M26).
+   * Gated behind `FOLLOW_UP_SUPPRESSION_ENABLED`/`RECRUITMENT_TASK_AUTOMATION_ENABLED` (both
+   * default `false`) — a deliberately separate, later rollout step from the higher-stakes
+   * dispatch-side enforcement flag (`REPLY_DRIVEN_EXECUTION_ENABLED`, checked inside
+   * `CampaignBatchDispatchService`), so this milestone's inbox-side observability can be validated
+   * before the live send path is ever actually affected.
    */
-  private async recordFollowupPauseIfWarranted(
+  private async applyOperationalDecision(
     userId: string,
     campaignId: string | null,
     applicationId: string | null,
     inboxMessageId: string,
+    providerMessageId: string,
     category: ReplyPrimaryCategory,
-    secondaryLabels: ReadonlyArray<ReplySecondaryLabel>,
+    facts: ExtractedRecruitmentFacts,
+    confidence: number,
+    evidence: Readonly<Record<string, unknown>>,
+    correlationId: string,
   ): Promise<void> {
-    if (!campaignId) return;
-    const isRelevantHumanSignal = secondaryLabels.includes('HUMAN_REPLY') && category !== 'SPAM_OR_UNRELATED' && category !== 'NEEDS_MANUAL_REVIEW' && category !== 'UNKNOWN';
-    if (!isRelevantHumanSignal) return;
+    if (!applicationId) return; // a follow-up control is keyed by applicationId — nothing to record without one
+    const decision = decideOperationalAction(category, facts);
 
-    await this.audit.record({
-      eventType: 'CAMPAIGN_FOLLOWUP_PAUSED',
-      userId,
-      campaignId,
-      applicationId: applicationId ?? undefined,
-      inboxMessageId,
-      detail: `A real human reply (${category}) was received — future automated follow-up for this application should be avoided. No CampaignTarget mutation performed (see this method's own doc comment for why).`,
-    });
+    if (decision.controlType && this.config.get<boolean>('recruitmentOperations.followUpSuppressionEnabled', false)) {
+      const expiresAt = decision.defaultHoldDurationDays ? new Date(this.clock.now().getTime() + decision.defaultHoldDurationDays * 24 * 60 * 60 * 1000) : null;
+      await this.followUpControls.recordControl({
+        userId,
+        applicationId,
+        campaignId,
+        companyId: null,
+        jobId: null,
+        sourceInboxMessageId: inboxMessageId,
+        sourceProviderMessageId: providerMessageId,
+        controlType: decision.controlType,
+        reasonCode: category,
+        explanation: `${decision.followUpAction === 'SUPPRESS_PERMANENT' ? 'Permanently suppressed' : decision.followUpAction === 'BLOCK_RECIPIENT' ? 'Recipient blocked' : 'Temporarily held'} after a ${category} reply.`,
+        classification: category,
+        confidence,
+        evidence,
+        expiresAt,
+        correlationId,
+      });
+    }
+
+    if (decision.taskType && this.config.get<boolean>('recruitmentOperations.recruitmentTaskAutomationEnabled', false)) {
+      const { dueAt, dueDateConfidence, originalDateText } = this.resolveDueDate(decision.deadlineSource, facts);
+      await this.recruitmentTasks.createTask({
+        userId,
+        applicationId,
+        companyId: null,
+        jobId: null,
+        sourceInboxMessageId: inboxMessageId,
+        taskType: decision.taskType,
+        title: this.taskTitleFor(decision.taskType),
+        explanation: `Created from a ${category} reply.`,
+        evidence,
+        priority: decision.taskType === 'MANUAL_REPLY_REVIEW' ? 'HIGH' : 'NORMAL',
+        dueAt,
+        dueDateConfidence,
+        originalDateText,
+        correlationId,
+      });
+    }
+  }
+
+  private resolveDueDate(source: 'INTERVIEW_DATE' | 'SUBMISSION_DEADLINE' | 'ASSESSMENT_DEADLINE' | null, facts: ExtractedRecruitmentFacts): { dueAt: Date | null; dueDateConfidence: 'RELIABLE' | 'AMBIGUOUS' | null; originalDateText: string | null } {
+    const extraction: DateExtraction | null = source === 'INTERVIEW_DATE' ? facts.interviewDate : source === 'SUBMISSION_DEADLINE' ? facts.submissionDeadline : source === 'ASSESSMENT_DEADLINE' ? facts.assessmentDeadline : null;
+    if (!extraction) return { dueAt: null, dueDateConfidence: null, originalDateText: null };
+    if (extraction.isAmbiguous || !extraction.normalizedDate) {
+      return { dueAt: null, dueDateConfidence: 'AMBIGUOUS', originalDateText: extraction.originalText };
+    }
+    return { dueAt: new Date(extraction.normalizedDate), dueDateConfidence: 'RELIABLE', originalDateText: extraction.originalText };
+  }
+
+  private taskTitleFor(taskType: RecruitmentTaskType): string {
+    switch (taskType) {
+      case 'CONFIRM_INTERVIEW':
+        return 'Confirm your interview';
+      case 'SELECT_INTERVIEW_SLOT':
+        return 'Choose an interview time';
+      case 'PREPARE_INTERVIEW':
+        return 'Prepare for your interview';
+      case 'UPLOAD_REQUESTED_DOCUMENT':
+        return 'Upload requested document(s)';
+      case 'SEND_REQUESTED_DOCUMENT':
+        return 'Send requested document(s)';
+      case 'PROVIDE_INFORMATION':
+        return 'Reply with requested information';
+      case 'COMPLETE_ASSESSMENT':
+        return 'Complete the assessment';
+      case 'REVIEW_OFFER':
+        return 'Review the offer';
+      case 'FOLLOW_UP_AFTER_DATE':
+        return 'Follow up';
+      case 'MANUAL_REPLY_REVIEW':
+        return 'Review this reply manually';
+      case 'REAUTHORIZE_INBOX':
+        return 'Reauthorize inbox access';
+      case 'RECONNECT_MAILBOX':
+        return 'Reconnect your mailbox';
+    }
   }
 }

@@ -28,6 +28,14 @@ export class InboxPollingTickDriverService implements OnModuleInit, OnModuleDest
   ) {}
 
   onModuleInit(): void {
+    // M31 Phase 3/4 — real API/Worker process split; see `EmailQueueWorkerService`'s identical gate.
+    // Unlike that tick, this one has NO cross-process lock of its own (Phase 1 audit finding) — on
+    // a split-process topology this gate is the real, only protection against two instances polling
+    // the same mailboxes concurrently, not just a cleanliness measure.
+    if (!this.config.get<boolean>('app.runTicks', true)) {
+      this.logger.log('RUN_TICKS=false — inbox polling tick not registered on this process.');
+      return;
+    }
     if (!this.config.get<boolean>('inboxIntelligence.polling.enabled', true)) {
       this.logger.warn('Inbox polling is disabled (INBOX_POLLING_ENABLED=false) — no tick interval registered.');
       return;

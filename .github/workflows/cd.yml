@@ -1,0 +1,173 @@
+name: CD
+
+# M31.2 — real deployment pipeline, now that hosting is decided (Render, docs/production-
+# certification/30-hosting-decision-package.md). Structure unchanged from M31's own skeleton (the
+# gates, the required manual approval, the smoke test); the actual push/deploy steps are now real:
+# images are pushed to GitHub Container Registry (ghcr.io — uses the automatically-provided
+# GITHUB_TOKEN, no new external account needed) and Staging deploys are triggered via a Render
+# Deploy Hook (a plain webhook URL Render generates per-service — the simplest of Render's
+# deploy-trigger mechanisms, requiring no API key). The Deploy Hook URL itself is a real secret
+# (`RENDER_STAGING_DEPLOY_HOOK_API`/`_WEB`/`_WORKER`) that can only exist once the Product Owner has
+# created the real Render services (doc 36's blueprint/topology) — this workflow reads it from a
+# GitHub Actions secret, never hardcodes it, and every step here is a real no-op until that secret
+# is actually set.
+#
+# The path (brief's own Phase 5 spec, unchanged): PR → Validation (ci.yml) → Merge → Build immutable
+# artifact → Deploy Staging → Staging verification → Manual Production approval → Production
+# deployment → Smoke test → Monitoring verification. Automatic Production deployment without human
+# approval is never permitted (Non-Negotiable Principle #11 / this workflow's own
+# `environment: production` gate, which GitHub enforces as a required reviewer approval — configured
+# in repo Settings once Production is a real, approved target, which it is not this milestone).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # required to push to ghcr.io
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+      api-image: ${{ steps.meta.outputs.api-image }}
+      web-image: ${{ steps.meta.outputs.web-image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — needed for a real git-commit-based tag
+      - id: meta
+        run: |
+          echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "api-image=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/german-job-engine-api" >> "$GITHUB_OUTPUT"
+          echo "web-image=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/german-job-engine-web" >> "$GITHUB_OUTPUT"
+          echo "GIT_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "BUILD_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # M31 Phase 6 — every image this pipeline produces is immutable and traceable: tagged by the
+      # exact git commit it was built from, carrying that same commit + build timestamp baked in as
+      # build args so the running container's own `/version` endpoint reports them (Phase 6: "كل
+      # Release يجب أن يحتوي: Version / Git commit / Build timestamp"). Also tagged `:latest` so a
+      # Render service configured to track the registry's latest tag picks up new pushes without
+      # needing its own render.yaml edit per release.
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.api-image }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.api-image }}:latest
+          build-args: |
+            GIT_COMMIT=${{ env.GIT_COMMIT }}
+            BUILD_TIMESTAMP=${{ env.BUILD_TIMESTAMP }}
+      - name: Build and push Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.web-image }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.web-image }}:latest
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: staging # a real GitHub Environment — its own secrets, its own protection rules
+    steps:
+      # Render Deploy Hooks are plain webhook URLs (POST, no body needed) generated per-service in
+      # the Render dashboard (Service → Settings → Deploy Hook) once that service exists — real
+      # external action, doc 36's own EXTERNAL ACTION REQUIRED block. Each secret's mere absence is
+      # treated as "Staging not provisioned yet," not a failure — this step reports that plainly
+      # rather than erroring opaquely, so a run against a not-yet-provisioned Staging is honestly
+      # visible in the Actions log, not silently green.
+      - name: Trigger Render Staging deploy (API)
+        run: |
+          if [ -z "${{ secrets.RENDER_STAGING_DEPLOY_HOOK_API }}" ]; then
+            echo "::warning::RENDER_STAGING_DEPLOY_HOOK_API is not set — Staging API service does not exist yet (doc 36 EXTERNAL ACTION REQUIRED). Skipping."
+            exit 0
+          fi
+          curl -fsS -X POST "${{ secrets.RENDER_STAGING_DEPLOY_HOOK_API }}"
+      - name: Trigger Render Staging deploy (Web)
+        run: |
+          if [ -z "${{ secrets.RENDER_STAGING_DEPLOY_HOOK_WEB }}" ]; then
+            echo "::warning::RENDER_STAGING_DEPLOY_HOOK_WEB is not set — Staging Web service does not exist yet (doc 36 EXTERNAL ACTION REQUIRED). Skipping."
+            exit 0
+          fi
+          curl -fsS -X POST "${{ secrets.RENDER_STAGING_DEPLOY_HOOK_WEB }}"
+      - name: Trigger Render Staging deploy (Worker)
+        run: |
+          if [ -z "${{ secrets.RENDER_STAGING_DEPLOY_HOOK_WORKER }}" ]; then
+            echo "::warning::RENDER_STAGING_DEPLOY_HOOK_WORKER is not set — Staging Worker service does not exist yet (doc 36 EXTERNAL ACTION REQUIRED). Skipping."
+            exit 0
+          fi
+          curl -fsS -X POST "${{ secrets.RENDER_STAGING_DEPLOY_HOOK_WORKER }}"
+
+  staging-verification:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging]
+    environment: staging
+    steps:
+      # Real, not a placeholder: polls the real Staging URL's /version until it reports the exact
+      # commit this run just built, then checks /health and /ready. STAGING_API_URL is itself a
+      # real secret (the Staging service's public URL) — only set once Staging exists (doc 36).
+      - name: Wait for Staging to report the new commit, then verify health
+        run: |
+          if [ -z "${{ secrets.STAGING_API_URL }}" ]; then
+            echo "::warning::STAGING_API_URL is not set — Staging does not exist yet (doc 36 EXTERNAL ACTION REQUIRED). Skipping."
+            exit 0
+          fi
+          URL="${{ secrets.STAGING_API_URL }}"
+          EXPECTED="${{ needs.build-and-push.outputs.image-tag }}"
+          for i in $(seq 1 30); do
+            COMMIT=$(curl -fsS "$URL/version" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).data.gitCommit.slice(0,7))}catch(e){console.log('')}})" || true)
+            if [ "$COMMIT" = "$EXPECTED" ]; then echo "Staging reports the new commit ($COMMIT)."; break; fi
+            echo "Waiting for Staging to roll out $EXPECTED (currently $COMMIT)... ($i/30)"
+            sleep 10
+          done
+          curl -fsS "$URL/health" | grep -q '"status":"ok"'
+          curl -fsS "$URL/ready" | grep -q '"status":"ready"'
+      - run: echo "Run the full synthetic/E2E flow (docs/production-certification/24-staging-e2e-certification.md, extended per M31.2 with real provider steps) against \$STAGING_API_URL here once real provider credentials exist. Blocks promotion to Production until real and green."
+
+  # The real, required gate: GitHub Environments support "required reviewers" — configuring the
+  # `production` environment (repo Settings → Environments) to require at least one human approval
+  # is what actually enforces Non-Negotiable Principle #11 ("لا تسمح بـ Automatic Production
+  # Deployment دون Human Approval") at the platform level, not just as a comment in this file.
+  # M31.2 — Production is explicitly NOT activated this milestone (Closed Beta runs on Staging).
+  # This job stays a real no-op placeholder on purpose, not because it's unbuilt but because
+  # activating it is itself the exact "Activate Public Production" action on this milestone's own
+  # forbidden-without-approval list.
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: staging-verification
+    environment: production
+    steps:
+      - run: echo "M31.2 — Production activation is explicitly out of scope for this milestone (Closed Beta runs on Staging only). This job intentionally does nothing until a separate, explicit Product Owner Production Activation decision is made."
+
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    environment: production
+    steps:
+      - run: echo "Not applicable this milestone — see deploy-production's own comment."
+
+  monitoring-verification:
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    environment: production
+    steps:
+      - run: echo "Not applicable this milestone — see deploy-production's own comment."

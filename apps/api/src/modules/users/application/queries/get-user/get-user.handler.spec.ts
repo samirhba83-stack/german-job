@@ -16,6 +16,9 @@ describe('GetUserHandler', () => {
       findByEmail: jest.fn(),
       save: jest.fn(),
       delete: jest.fn(),
+      getAccountStatus: jest.fn(),
+      suspend: jest.fn(),
+      unsuspend: jest.fn(),
     };
     handler = new GetUserHandler(userRepository);
   });

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { ExecutionModule } from '../execution/execution.module';
 import { ProviderSelectionModule } from '../provider-selection/provider-selection.module';
 import { DocumentsModule } from '../documents/documents.module';
@@ -42,9 +43,27 @@ import { AdminEmailController } from './presentation/controllers/admin-email.con
  * registry, now populated with the 4 real adapters — see that module's own updated doc comment)
  * — a one-directional dependency (`deliverability` -> `provider-selection` -> `email-provider`),
  * never the reverse, so no cycle is possible.
+ *
+ * M30 fix — several providers here inject `ConfigService` directly (`DomainReadinessService`,
+ * `EmailProviderManagerService`, `EmailQueueService`/`EmailQueueWorkerService`,
+ * `PlatformSenderResolutionService`, the SES/Resend/SendGrid webhook verifiers) but this module
+ * never imported `ConfigModule` (same pre-existing gap found and fixed in
+ * `DocumentsModule`/`EmailProviderModule`/`BillingModule`/`ConnectedMailboxModule`).
+ *
+ * `EmailQueueWorkerService` also injects `SchedulerRegistry` (`@nestjs/schedule`) for its own
+ * `@Cron`-driven tick — a related but NOT-fixed-here gap: unlike `ConfigModule`,
+ * `SchedulerRegistry` is only ever provided via `ScheduleModule.forRoot()`'s dynamic providers
+ * (never by importing the bare `ScheduleModule` class), and `.forRoot()` is correctly called
+ * exactly ONCE, in `AppModule` — calling it again here would risk duplicate cron-job registration
+ * the moment both modules are ever loaded together (as they already are in the real app). This is
+ * real, but only surfaces inside a narrow, pre-existing, hand-assembled partial NestJS testing
+ * module (`test/execution-pipeline.e2e-spec.ts` / `test/execution-resilience.e2e-spec.ts`, both
+ * from M19/M26, neither touched by M30) that never bootstraps the real `AppModule` — documented in
+ * `docs/recruitment-operations/known-limitations.md` rather than "fixed" with a change that would
+ * itself be a real production risk.
  */
 @Module({
-  imports: [ExecutionModule, ProviderSelectionModule, DocumentsModule],
+  imports: [ExecutionModule, ProviderSelectionModule, DocumentsModule, ConfigModule],
   controllers: [EmailWebhooksController, AdminEmailController],
   providers: [
     { provide: EMAIL_PROVIDER_HEALTH_REPOSITORY, useClass: PrismaEmailProviderHealthRepository },

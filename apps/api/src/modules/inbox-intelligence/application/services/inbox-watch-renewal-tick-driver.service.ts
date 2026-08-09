@@ -26,6 +26,13 @@ export class InboxWatchRenewalTickDriverService implements OnModuleInit, OnModul
   ) {}
 
   onModuleInit(): void {
+    // M31 Phase 3/4 — real API/Worker process split; see `EmailQueueWorkerService`'s identical gate.
+    // Same "no cross-process lock of its own" reasoning as `InboxPollingTickDriverService` — this
+    // gate is the real protection against two instances renewing the same watch concurrently.
+    if (!this.config.get<boolean>('app.runTicks', true)) {
+      this.logger.log('RUN_TICKS=false — inbox watch-renewal tick not registered on this process.');
+      return;
+    }
     if (!this.config.get<boolean>('inboxIntelligence.connectedInboxProcessingEnabled', false)) {
       this.logger.warn('Inbox processing is disabled (CONNECTED_INBOX_PROCESSING_ENABLED=false) — no watch-renewal tick registered.');
       return;

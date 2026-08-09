@@ -38,3 +38,4 @@ export * from './feature-entitlement.enum';
 export * from './connected-mailbox-provider.enum';
 export * from './connected-mailbox-status.enum';
 export * from './inbox-intelligence.enum';
+export * from './recruitment-operations.enum';

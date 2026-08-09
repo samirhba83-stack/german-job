@@ -1,1 +1,1 @@
-export type { LoginRequestDto, AuthTokensDto } from '@german-job-engine/shared-types';
+export type { LoginRequestDto, RegisterRequestDto, AuthTokensDto } from '@german-job-engine/shared-types';

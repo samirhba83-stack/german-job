@@ -37,14 +37,23 @@ export class PrismaApplicationTransitionProposalRepository implements Applicatio
     return this.toRecord(row);
   }
 
-  async markConfirmed(id: string, confirmedByUserId: string, now: Date): Promise<ApplicationTransitionProposalRecord> {
-    const row = await this.prisma.applicationTransitionProposal.update({ where: { id }, data: { status: 'CONFIRMED', confirmedByUserId, confirmedAt: now, updatedAt: now } });
-    return this.toRecord(row);
-  }
+  async tryTransition(id: string, fromStatus: 'PENDING' | 'CONFIRMED', toStatus: 'CONFIRMED' | 'REJECTED' | 'PENDING', actorUserId: string, now: Date): Promise<ApplicationTransitionProposalRecord | null> {
+    const data: Prisma.ApplicationTransitionProposalUpdateManyMutationInput =
+      toStatus === 'CONFIRMED'
+        ? { status: 'CONFIRMED', confirmedByUserId: actorUserId, confirmedAt: now, updatedAt: now }
+        : toStatus === 'REJECTED'
+          ? { status: 'REJECTED', rejectedByUserId: actorUserId, rejectedAt: now, updatedAt: now }
+          // Rollback of a claim after a genuinely unexpected (non-stale) dispatch failure — clear
+          // the claim markers this same claim set, so a PENDING row never shows leftover
+          // `confirmedAt`/`confirmedByUserId` from an attempt that didn't actually succeed.
+          : { status: 'PENDING', confirmedByUserId: null, confirmedAt: null, updatedAt: now };
 
-  async markRejected(id: string, rejectedByUserId: string, now: Date): Promise<ApplicationTransitionProposalRecord> {
-    const row = await this.prisma.applicationTransitionProposal.update({ where: { id }, data: { status: 'REJECTED', rejectedByUserId, rejectedAt: now, updatedAt: now } });
-    return this.toRecord(row);
+    const result = await this.prisma.applicationTransitionProposal.updateMany({
+      where: { id, status: fromStatus as unknown as Prisma.ApplicationTransitionProposalWhereInput['status'] },
+      data,
+    });
+    if (result.count !== 1) return null; // lost the race, or already handled — caller treats this as a real conflict
+    return this.findById(id);
   }
 
   async listByApplicationId(applicationId: string): Promise<ApplicationTransitionProposalRecord[]> {

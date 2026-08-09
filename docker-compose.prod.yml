@@ -1,14 +1,70 @@
+# M31 Phase 4 — real production override (was a 15-line stub before this milestone). Used as
+# `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`. Implements the
+# process-role separation from docs/production-certification/03-cloud-topology.md's "Option A —
+# Minimum-cost topology": API, Worker/Scheduler, and Web as three independently-restartable
+# services sharing one image per app, split by the `RUN_TICKS` env var (Phase 3/4) rather than
+# maintaining a second codebase. This file does NOT itself make anything internet-facing or
+# inject real secrets — a real deployment supplies `.env.production` (never this file, never
+# Git) via the secret-management mechanism chosen in Phase 7.
 services:
   postgres:
     restart: always
+    # Never expose the database port to the host's public interface in production — the API/
+    # Worker containers reach it over the internal compose network by service name only (Phase 8:
+    # "Database not publicly exposed").
+    ports: []
+
+  minio:
+    restart: always
+    # Same reasoning as postgres — the admin console (9001) especially must never be reachable
+    # from outside the internal network in production (Phase 8: "Storage admin port not publicly
+    # exposed"). The apps reach MinIO via the internal `minio:9000` service address only.
     ports: []
 
   api:
     restart: always
     environment:
       NODE_ENV: production
+      APP_ENVIRONMENT: production
+      RUN_TICKS: "false"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-job_engine}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-german_job_engine}?schema=public
+      EMAIL_ATTACHMENT_STORAGE_ENDPOINT: http://minio:9000
+      NODE_ENV: production
+      APP_ENVIRONMENT: production
+      RUN_TICKS: "true"
+    # No `ports:` — the Worker process never serves HTTP traffic; it exists solely to run the 6
+    # tick-driver services (Phase 1 audit finding: today these all run inside the API process with
+    # no process-role separation). Exactly one Worker replica must ever run — see Known Limitations
+    # for why (no leader election on 4 of the 6 ticks yet).
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+      replicas: 1
 
   web:
     restart: always
     environment:
       NODE_ENV: production
+    deploy:
+      resources:
+        limits:
+          memory: 256M
