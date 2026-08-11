@@ -29,10 +29,24 @@ ENV PORT=3000
 
 # `.next/standalone` already contains a minimal, traced `node_modules` (production deps only) and
 # a self-contained `server.js` — no separate production `pnpm install` stage is needed here, unlike
-# the API image, since Next's own build step already did that tracing.
+# the API image, since Next's own build step already did that tracing. `.next/standalone` mirrors
+# monorepo-root-relative paths, so `.next/static` (never included in standalone output — Next's own
+# documented behavior) lands at the nested apps/web/apps/web/.next/static, matching Next's own
+# monorepo standalone guidance — not a path mistake.
 COPY --from=build --chown=node:node /repo/apps/web/.next/standalone /repo/apps/web
 COPY --from=build --chown=node:node /repo/apps/web/.next/static /repo/apps/web/apps/web/.next/static
-COPY --from=build --chown=node:node /repo/apps/web/public /repo/apps/web/apps/web/public
+# M31.2 — real CI failure, root-caused and fixed: `apps/web/public` exists locally only as an
+# EMPTY directory (created by the original create-next-app scaffold, never populated — confirmed
+# by grepping the entire app source for any reference to a public/static asset: none exist, no
+# favicon, no images). Git cannot track empty directories, so this COPY succeeded on every local
+# build (Docker's build context reads the real local filesystem) but failed on every real GitHub
+# Actions run (`actions/checkout@v4` clones the git repository, which never had this directory at
+# all — "failed to compute cache key: /repo/apps/web/public: not found"). This is Case B, not
+# Case A or C: not "assets exist but weren't copied right," not "an intentionally-empty directory
+# needs a placeholder" — genuinely unused. Removed rather than papered over with a fake placeholder
+# file solely to satisfy Docker. If real public assets (favicon, robots.txt, images) are ever
+# added under apps/web/public, restore this line:
+#   COPY --from=build --chown=node:node /repo/apps/web/public /repo/apps/web/apps/web/public
 
 USER node
 WORKDIR /repo/apps/web/apps/web
