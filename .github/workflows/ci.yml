@@ -301,14 +301,23 @@ jobs:
       # Real container vulnerability scanning (Trivy — free, open-source, no account/payment
       # required) — a real high/critical finding fails this job, matching `dependency-audit`'s own
       # gate philosophy.
+      #
+      # v0.28.0 (previously pinned here) is a genuinely broken upstream release, not a mistake in
+      # this file: its own action.yaml internally calls `aquasecurity/setup-trivy@v0.2.1`, a version
+      # that was never actually published to that repo (confirmed via the GitHub API — real tags
+      # are v0.2.6/v0.3.0/v0.3.1) — every job run failed at "Set up job" within ~2s, before any of
+      # our own steps ever started, with the real annotation "Unable to resolve action
+      # `aquasecurity/setup-trivy@v0.2.1`, unable to find version `v0.2.1`". v0.36.0 (latest,
+      # verified) pins its setup-trivy sub-action by commit SHA `3fb12ec1...` — independently
+      # confirmed via `git ls-remote` to be the exact commit real tag v0.2.6 points to.
       - name: Scan API image
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: german-job-engine-api:ci
           severity: HIGH,CRITICAL
           exit-code: '1'
       - name: Scan Web image
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: german-job-engine-web:ci
           severity: HIGH,CRITICAL
