@@ -24,6 +24,13 @@ RUN pnpm --filter @german-job-engine/web build
 
 FROM base AS runner
 RUN apk add --no-cache dumb-init
+# M31.2 — same real OS-package-lag Trivy fix as apps/api/Dockerfile (CVE-2026-45447 — see that
+# file's own comment for the real evidence this closes it).
+RUN apk upgrade --no-cache
+# M31.2 — same real, zero-risk Trivy fix as apps/api/Dockerfile: this image never invokes npm
+# (Next's standalone server.js is started directly by `node`), so node:20-alpine's bundled npm
+# (and its outdated vendored sigstore — CVE-2026-48815) is dead weight, safely removed.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 ENV NODE_ENV=production
 ENV PORT=3000
 

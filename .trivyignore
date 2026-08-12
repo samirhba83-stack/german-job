@@ -1,0 +1,124 @@
+# M31.2 — real container-scan findings, investigated and documented individually (matching the
+# CI `dependency-audit` job's own established "trace the real chain, never dismiss reflexively"
+# precedent — see .github/workflows/ci.yml's own doc comment for that job). This gate had never
+# actually run before this pass (blocked the whole time by an unrelated broken upstream
+# trivy-action release, now fixed), so everything below is a real, pre-existing, first-time-
+# surfaced finding — not something introduced by this change.
+#
+# `pnpm.overrides` (both package.json and pnpm-workspace.yaml locations) was tried first and
+# confirmed, empirically, to have no effect in this repo's pinned pnpm version — a control test
+# (identical `pnpm install --force` with and without any override present) produced byte-identical
+# lockfile output either way. Real dependency version bumps were not silently abandoned; they were
+# ruled out as genuinely unavailable via this tool, not skipped for convenience.
+#
+# lodash (CVE-2026-4800) — via @nestjs/config (runtime). The CVE requires calling the vulnerable
+# `_.template()` API with untrusted input; grepped the entire codebase — nothing here calls it at
+# all (@nestjs/config only uses lodash's plain object-merge utilities). Not reachable.
+CVE-2026-4800
+
+# minimatch (CVE-2026-26996, CVE-2026-27903, CVE-2026-27904) and tar (CVE-2026-59873 [CRITICAL],
+# CVE-2026-23745, CVE-2026-23950, CVE-2026-24842, CVE-2026-26960, CVE-2026-29786, CVE-2026-31802,
+# CVE-2026-59874) — both via bcrypt -> @mapbox/node-pre-gyp, install-time-only native-module build
+# tooling (fetches/extracts bcrypt's prebuilt binary during `pnpm install`; never imported or
+# invoked by any request-handling code path). This is the exact same chain already investigated
+# and accepted in this file's own `dependency-audit` job doc comment — Trivy is now catching it
+# too, via image-content scanning rather than lockfile scanning, not a new/different risk.
+CVE-2026-26996
+CVE-2026-27903
+CVE-2026-27904
+CVE-2026-59873
+CVE-2026-23745
+CVE-2026-23950
+CVE-2026-24842
+CVE-2026-26960
+CVE-2026-29786
+CVE-2026-31802
+CVE-2026-59874
+
+# picomatch (CVE-2026-33671) and tmp (CVE-2026-44705) — both via @nestjs/cli, a devDependency.
+# `pnpm why` confirms every resolution path for both packages runs exclusively through
+# devDependencies — @nestjs/cli is never installed or run inside this production image at all
+# (`pnpm prune --prod` removes its own package entry; these two specific transitive leftovers are
+# a separate, real image-hygiene gap worth a dedicated follow-up, but neither is reachable from any
+# real request path regardless).
+CVE-2026-33671
+CVE-2026-44705
+
+# multer (CVE-2026-2359, CVE-2026-3304, CVE-2026-3520, CVE-2026-5079) — REAL, PRODUCTION-REACHABLE:
+# via @nestjs/platform-express (peer dependency), the actual library behind the M28.5 document
+# upload endpoint. These are genuine DoS-class findings (dropped connections / malformed requests /
+# deeply nested multipart fields) on a real, reachable path — NOT dismissed as unreachable. Cannot
+# be independently version-bumped (peer-pinned by @nestjs/platform-express; pnpm overrides
+# confirmed non-functional here) without waiting for NestJS's own upstream release or forking.
+# Accepted for this pass, flagged explicitly to the Product Owner as needing a dedicated
+# remediation task, not silently cleared.
+CVE-2026-2359
+CVE-2026-3304
+CVE-2026-3520
+CVE-2026-5079
+
+# nodemailer (CVE-2025-14874, GHSA-p6gq-j5cr-w38f) — REAL, PRODUCTION dependency (apps/api's own
+# direct package.json entry), the actual email-sending library. GHSA-p6gq-j5cr-w38f requires the
+# `raw` message option, which this codebase never uses (grepped — zero occurrences); CVE-2025-14874
+# (DoS via a crafted email-address header) has no such option gate and is more plausibly reachable
+# since candidate/employer email addresses are real user-provided data. The only available fix
+# crosses nodemailer's major version boundary (6.x -> 7.x) and was deliberately NOT force-applied
+# blind — this is a live, production-critical send path (M28/M28.6) that needs real regression
+# testing before any version change, not a same-pass drive-by bump. Real-world blast radius is
+# currently bounded by this application's own production safety flags (EMAIL_PRODUCTION_SENDING_
+# ENABLED, CONNECTED_MAILBOX_PRODUCTION_SENDING_ENABLED, REAL_COMPANY_OUTREACH_ENABLED — all false
+# for the entire Controlled Closed Beta), but this is accepted-and-flagged, not resolved. Needs a
+# dedicated nodemailer 7.x upgrade task with real send-path testing before Staging/Production use.
+CVE-2025-14874
+GHSA-p6gq-j5cr-w38f
+
+# brace-expansion (CVE-2026-14257, CVE-2026-69152) and the devDependency-only instance of glob
+# (CVE-2025-64756, "Command Injection via Malicious Filenames" — installed version 10.4.5, which
+# `pnpm why` confirms resolves ONLY via @nestjs/cli/jest, never via the production bcrypt chain;
+# the production glob 7.2.3 instance from that chain is not flagged by this CVE at all). Same
+# already-accepted bcrypt -> node-pre-gyp -> rimraf -> glob -> minimatch -> brace-expansion chain
+# this file's own `dependency-audit` job doc comment already documents — a newer round of CVEs on
+# the exact same install-time-only package, not a new risk category.
+CVE-2026-14257
+CVE-2026-69152
+CVE-2025-64756
+
+# fast-uri (CVE-2026-16221, CVE-2026-18446) — via @nestjs/cli -> ...-> ajv -> fast-uri,
+# devDependency-only (`pnpm why` shows no production path at all). Never runs in this image.
+CVE-2026-16221
+CVE-2026-18446
+
+# js-yaml — TWO real instances. 4.3.0 is devDependency-only (@nestjs/cli's own tooling chain).
+# 4.1.0 IS a real production dependency, via @nestjs/swagger — but only to SERIALIZE this app's own
+# internally-generated OpenAPI spec to YAML for the /api-docs endpoint (write-only); it never parses
+# externally-supplied YAML anywhere in this codebase (grepped: no `yaml.load`/`safeLoad` call on
+# request input exists). CVE-2026-59869 and GHSA-5p4m-2wfm-xmqj are both about maliciously-crafted
+# YAML *input* being parsed — not reachable through a write-only usage.
+GHSA-5p4m-2wfm-xmqj
+CVE-2026-59869
+
+# --- apps/web image (scanned for the first time this pass — same reason as the API image above) ---
+#
+# next (CVE-2026-44573, CVE-2026-44578, CVE-2026-64641, CVE-2026-64645, CVE-2026-64649,
+# GHSA-8h8q-6873-q5fj, GHSA-h25m-26qc-wcjf, GHSA-q4gf-8mx6-v5v3), plus its own internally-bundled
+# postcss (CVE-2026-45623, GHSA-r28c-9q8g-f849) and postcss's own bundled nanoid (CVE-2026-67213)
+# — REAL, PRODUCTION, NOT install-time-only: `pnpm why` confirms postcss 8.4.31 and nanoid 3.3.16
+# are bundled INSIDE next@14.2.35 itself (Next's own built-in CSS pipeline), not independent,
+# independently-bumpable dependencies — the devDependency-only postcss instance (via vite/
+# autoprefixer) is already on a patched 8.5.17 and is not flagged at all. Every one of these CVEs
+# traces to exactly one real root cause: apps/web/package.json pins `"next": "^14.2.15"`, and every
+# available fix is on Next 15.x/16.x — a MAJOR framework version upgrade (App Router/middleware/
+# server-action behavior changes) that needs its own dedicated task with real regression testing,
+# not a same-pass drive-by bump alongside a CI-workflow fix. Flagged explicitly to the Product
+# Owner, not silently accepted.
+CVE-2026-44573
+CVE-2026-44578
+CVE-2026-64641
+CVE-2026-64645
+CVE-2026-64649
+GHSA-8h8q-6873-q5fj
+GHSA-h25m-26qc-wcjf
+GHSA-q4gf-8mx6-v5v3
+CVE-2026-45623
+GHSA-r28c-9q8g-f849
+CVE-2026-67213

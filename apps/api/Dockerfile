@@ -43,6 +43,20 @@ FROM base AS runner
 # one gets loaded. `dumb-init` gives the container a real PID 1 that correctly forwards SIGTERM
 # and reaps zombie child processes — Node itself does neither by default.
 RUN apk add --no-cache openssl dumb-init
+# M31.2 — real Trivy container-scan finding: the frozen `node:20-alpine` base image's baked-in
+# libssl3/libcrypto3 (CVE-2026-45447) lags behind Alpine's own package repo — confirmed via
+# `apk update && apk info openssl` that a patched build (openssl-3.5.7-r0) is already published
+# there. `apk upgrade` re-syncs every OS package already on this image to whatever the repo
+# currently has, closing this without waiting on Docker Hub to rebuild the base image tag.
+RUN apk upgrade --no-cache
+# M31.2 — real Trivy container-scan finding, closed for free with zero behavior risk: `node:20-
+# alpine`'s own bundled `npm` (never invoked here — this repo uses pnpm exclusively, enforced via
+# `corepack enable`) ships its own vendored `sigstore` dependency, which is genuinely outdated
+# (CVE-2026-48815). Confirmed via `docker run --entrypoint sh ... find / -iname sigstore` that the
+# only copy in the image lives at npm's own `node_modules`, not anywhere in our own dependency
+# tree (absent from pnpm-lock.yaml entirely) — removing the unused npm install is strictly safer
+# and smaller, not a workaround.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 ENV NODE_ENV=production
 # M31 Phase 6 — build-time-injected release identity, surfaced at runtime by GET /version
 # (release.config.ts). CD (cd.yml) passes these as --build-arg from the real git commit/build

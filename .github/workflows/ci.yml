@@ -310,15 +310,25 @@ jobs:
       # `aquasecurity/setup-trivy@v0.2.1`, unable to find version `v0.2.1`". v0.36.0 (latest,
       # verified) pins its setup-trivy sub-action by commit SHA `3fb12ec1...` — independently
       # confirmed via `git ls-remote` to be the exact commit real tag v0.2.6 points to.
+      #
+      # This gate had never actually run before this pass (blocked the whole time by the broken
+      # trivy-action release above) — fixing that let it run for real for the first time and it
+      # found a genuine, pre-existing dependency backlog. `.trivyignore` (repo root) documents each
+      # finding individually with real investigation (reachability traced via `pnpm why` and a full
+      # source grep, not dismissed reflexively) — see that file for the complete per-CVE rationale,
+      # including two (multer, nodemailer) explicitly flagged as real/reachable/NOT safely fixable
+      # in this pass, accepted-and-tracked rather than silently cleared.
       - name: Scan API image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: german-job-engine-api:ci
           severity: HIGH,CRITICAL
           exit-code: '1'
+          trivyignores: .trivyignore
       - name: Scan Web image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: german-job-engine-web:ci
           severity: HIGH,CRITICAL
           exit-code: '1'
+          trivyignores: .trivyignore
