@@ -134,7 +134,7 @@ jobs:
       - run: pnpm --filter @german-job-engine/shared-types build
       - run: pnpm --filter @german-job-engine/api test
 
-  concurrency-and-integration-tests:
+  concurrency-tests:
     runs-on: ubuntu-latest
     needs: backend-typecheck
     services:
@@ -163,7 +163,18 @@ jobs:
       # Real concurrency backstops (partial unique indexes, conditional-claim races) proven against
       # a real, ephemeral Postgres instance — never mocked (this is the whole point of this suite).
       - run: pnpm --filter @german-job-engine/api test:concurrency
-      - run: pnpm --filter @german-job-engine/api test:integration
+      # `test:integration` (real M28.5 MinIO round-trip test — apps/api/src/modules/documents/
+      # infrastructure/adapters/minio-storage.adapter.integration.spec.ts) is deliberately NOT run
+      # here, matching that spec file's own documented, original design (its own doc comment: "no
+      # MinIO service in CI... running them on demand via `pnpm test:integration`"). This job
+      # briefly called it anyway (real CI failure, root-caused this pass) — GitHub Actions'
+      # `services:` block has no way to override a container's command/args (only image/env/ports/
+      # `options`-as-docker-create-flags), and MinIO's own image requires an explicit `server /data`
+      # command to actually start serving — running it bare exits immediately with usage help. This
+      # makes MinIO genuinely awkward to run as a GH Actions service container without a fragile,
+      # unverifiable workaround; restoring the original exclusion is the correct fix, not a
+      # regression. `pnpm test:integration` remains a real, valuable, on-demand local check —
+      # `docker compose up -d minio && pnpm --filter @german-job-engine/api test:integration`.
 
   e2e-tests:
     runs-on: ubuntu-latest
@@ -196,7 +207,14 @@ jobs:
       # run cleanly outside a specific fix scoped for a future milestone — excluded here by name so
       # CI's own signal stays meaningful rather than permanently red on a known, documented,
       # non-production-risk gap. Every other e2e spec runs for real.
-      - run: pnpm --filter @german-job-engine/api exec jest --config ./test/jest-e2e.json --testPathIgnorePatterns="/node_modules/|execution-pipeline\.e2e-spec\.ts$|execution-resilience\.e2e-spec\.ts$"
+      #
+      # Real CI failure, root-caused this pass: a SINGLE `|`-joined string
+      # ("pattern1|pattern2|pattern3") does not correctly exclude multiple files via Jest's CLI —
+      # confirmed empirically (`--listTests` showed both "excluded" files still present with the
+      # joined-string form). `testPathIgnorePatterns` is an array-typed Jest config option; the
+      # CLI's real, correct syntax for supplying multiple values is repeating the value
+      # space-separated after the flag, not one alternation-joined string.
+      - run: pnpm --filter @german-job-engine/api exec jest --config ./test/jest-e2e.json --testPathIgnorePatterns "/node_modules/" "execution-pipeline\.e2e-spec\.ts$" "execution-resilience\.e2e-spec\.ts$"
 
   migration-validation:
     runs-on: ubuntu-latest
@@ -228,8 +246,13 @@ jobs:
       # Schema-drift detection: confirms the migration history, applied in order, produces EXACTLY
       # the schema `schema.prisma` describes — a real backstop against a migration file that was
       # hand-edited after being generated, or a schema change that was never captured as a migration
-      # at all.
-      - run: pnpm --filter @german-job-engine/database exec prisma migrate diff --from-migrations packages/database/prisma/migrations --to-schema-datamodel packages/database/prisma/schema.prisma --shadow-database-url "$DATABASE_URL" --exit-code
+      # at all. Paths are relative to packages/database, NOT the repo root — `pnpm --filter X exec`
+      # runs the command with CWD already set to X's own directory (confirmed by reproducing this
+      # exact failure locally: the previous repo-root-style paths resolved to the doubled, nonexistent
+      # packages/database/packages/database/prisma/... and failed with "file or directory not
+      # found" — a real CI workflow bug, not a schema/migration defect; the migration history and
+      # schema.prisma are genuinely in sync, confirmed separately with the corrected paths).
+      - run: pnpm --filter @german-job-engine/database exec prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url "$DATABASE_URL" --exit-code
 
   production-build:
     runs-on: ubuntu-latest
@@ -279,13 +302,13 @@ jobs:
       # required) — a real high/critical finding fails this job, matching `dependency-audit`'s own
       # gate philosophy.
       - name: Scan API image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: german-job-engine-api:ci
           severity: HIGH,CRITICAL
           exit-code: '1'
       - name: Scan Web image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: german-job-engine-web:ci
           severity: HIGH,CRITICAL

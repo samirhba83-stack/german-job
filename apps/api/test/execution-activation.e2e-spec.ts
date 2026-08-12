@@ -3,6 +3,7 @@ import * as bcrypt from 'bcrypt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ObservabilityModule } from '../src/shared/infrastructure/observability/observability.module';
 import {
   CompanyIndustry,
   CompanySize,
@@ -82,7 +83,21 @@ describe('Execution Activation (real DI graph, real Postgres, real entry point) 
     campaignId = randomUUID();
 
     moduleRef = await Test.createTestingModule({
-      imports: [ConfigModule.forRoot({ isGlobal: true }), ScheduleModule.forRoot(), PrismaModule, ExecutionActivationModule],
+      // ObservabilityModule (real, @Global()) must be imported explicitly here: this test composes
+      // a narrower-than-AppModule but still-real graph, and since M31.1 gave EmailQueueWorkerService
+      // a hard `@Inject(METRICS_PORT)` dependency (reached transitively through
+      // ExecutionActivationModule -> CampaignExecutionTaskHandlerModule -> ConnectedMailboxModule ->
+      // DeliverabilityModule), METRICS_PORT must be bound somewhere in this graph too — exactly like
+      // production AppModule always has it, just not implicitly. @Global() only registers a module's
+      // exports for modules that don't import it themselves; it does not add the module to a graph
+      // that never references it at all, so this was a real gap, not a redundant import.
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true }),
+        ScheduleModule.forRoot(),
+        ObservabilityModule,
+        PrismaModule,
+        ExecutionActivationModule,
+      ],
     })
       .overrideProvider(EXECUTION_CLOCK)
       .useValue(new FixedClock(BUSINESS_HOURS_NOW))
