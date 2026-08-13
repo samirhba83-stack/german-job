@@ -122,3 +122,9 @@ GHSA-q4gf-8mx6-v5v3
 CVE-2026-45623
 GHSA-r28c-9q8g-f849
 CVE-2026-67213
+# CVE-2026-73646 (postcss, "Path Traversal in Previous Source Map Auto-Loading") — surfaced by a
+# real Trivy vulnerability-DB update in the ~24h after the investigation above (confirmed real via
+# authenticated `gh run view --log` on the CI run that caught it — not guessed). Same package,
+# same bundled-inside-next@14.2.35 root cause, same deferred-to-the-Next-15/16-upgrade disposition;
+# not a new investigation, just a newer CVE ID on the exact dependency already flagged above.
+CVE-2026-73646
