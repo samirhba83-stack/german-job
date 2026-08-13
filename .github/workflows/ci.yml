@@ -284,12 +284,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      # Real root cause of every "Scan API image" failure since the trivy-action version was fixed —
+      # found via authenticated `gh run view --log` (the check-run annotation only ever showed the
+      # generic "Process completed with exit code 1", never the actual FATAL error underneath, which
+      # made this genuinely invisible to unauthenticated diagnosis). It was NEVER a real vulnerability
+      # finding failing the gate: `docker/build-push-action@v6` with `push: false` and no `load: true`
+      # builds via Buildx but never exports the result into the local Docker daemon's image store —
+      # it only exists inside Buildx's own internal cache. Trivy then genuinely cannot find
+      # `german-job-engine-api:ci` anywhere (not via `docker inspect`, not containerd, not podman,
+      # and a final fallback attempt to PULL it from Docker Hub as a remote image correctly fails
+      # with 401 — it was never pushed anywhere). `docker build` (used for every LOCAL reproduction
+      # this pass) auto-loads into the daemon by default, which is exactly why local scans always
+      # found the image and CI never did — the two build mechanisms were never equivalent. `load:
+      # true` makes Buildx export the result into the daemon, matching local `docker build`'s
+      # behavior for real.
       - name: Build API image (validation only — not pushed by this workflow)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/api/Dockerfile
           push: false
+          load: true
           tags: german-job-engine-api:ci
       - name: Build Web image (validation only — not pushed by this workflow)
         uses: docker/build-push-action@v6
@@ -297,6 +312,7 @@ jobs:
           context: .
           file: apps/web/Dockerfile
           push: false
+          load: true
           tags: german-job-engine-web:ci
       # Real container vulnerability scanning (Trivy — free, open-source, no account/payment
       # required) — a real high/critical finding fails this job, matching `dependency-audit`'s own
