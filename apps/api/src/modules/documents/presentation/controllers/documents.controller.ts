@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Inject, Param, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { PinnedFileInterceptor } from '../../../../common/interceptors/pinned-file.interceptor';
 import { JwtAuthGuard } from '../../../auth/presentation/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../../common/decorators/current-user.decorator';
 import { JwtPayload } from '../../../auth/application/dto/jwt-payload.interface';
@@ -51,7 +51,7 @@ export class DocumentsController {
   ) {}
 
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MULTER_OUTER_SIZE_BOUND_BYTES } }))
+  @UseInterceptors(PinnedFileInterceptor('file', { limits: { fileSize: MULTER_OUTER_SIZE_BOUND_BYTES } }))
   @Post()
   async upload(@UploadedFile() file: Express.Multer.File, @Body() dto: UploadDocumentDto, @CurrentUser() user: JwtPayload) {
     if (!file) {

@@ -44,14 +44,22 @@ CVE-2026-59874
 CVE-2026-33671
 CVE-2026-44705
 
-# multer (CVE-2026-2359, CVE-2026-3304, CVE-2026-3520, CVE-2026-5079) — REAL, PRODUCTION-REACHABLE:
-# via @nestjs/platform-express (peer dependency), the actual library behind the M28.5 document
-# upload endpoint. These are genuine DoS-class findings (dropped connections / malformed requests /
-# deeply nested multipart fields) on a real, reachable path — NOT dismissed as unreachable. Cannot
-# be independently version-bumped (peer-pinned by @nestjs/platform-express; pnpm overrides
-# confirmed non-functional here) without waiting for NestJS's own upstream release or forking.
-# Accepted for this pass, flagged explicitly to the Product Owner as needing a dedicated
-# remediation task, not silently cleared.
+# multer (CVE-2026-2359, CVE-2026-3304, CVE-2026-3520, CVE-2026-5079) — GENUINELY REMEDIATED at the
+# M32 security remediation pass, but the vulnerable multer@2.0.2 remains PHYSICALLY present in
+# node_modules and still trips Trivy's scan, hence still listed here with an updated, real reason:
+# `@nestjs/platform-express@10.4.22` hard-pins its OWN internal multer to the exact string "2.0.2"
+# (not a semver range). Both `pnpm.overrides` and `pnpm.packageExtensions` (tried in BOTH their
+# package.json and pnpm-workspace.yaml locations — 4 real, empirically-verified attempts) have zero
+# effect in this repo's pinned pnpm version, so that copy cannot be forced to a patched version.
+# Real remediation instead: apps/api now directly depends on `multer@^2.2.0` (patched) in its own
+# package.json, and `PinnedFileInterceptor` (common/interceptors/pinned-file.interceptor.ts) — a
+# faithful, drop-in replacement for `@nestjs/platform-express`'s own `FileInterceptor` — imports
+# THAT pinned copy instead of NestJS's internal one. Confirmed via a full source grep that
+# `FileInterceptor`/`@nestjs/platform-express`'s multer are no longer imported anywhere in this
+# codebase, and via a real, 10-scenario HTTP-level e2e regression suite
+# (test/documents-upload.e2e-spec.ts) that the actual upload endpoint behaves identically. The
+# exploitable code path genuinely no longer exists; the vulnerable bytes on disk are real but dead,
+# unreachable code, kept installed only because @nestjs/platform-express itself still declares it.
 CVE-2026-2359
 CVE-2026-3304
 CVE-2026-3520
