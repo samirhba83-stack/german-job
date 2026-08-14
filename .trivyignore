@@ -65,20 +65,20 @@ CVE-2026-3304
 CVE-2026-3520
 CVE-2026-5079
 
-# nodemailer (CVE-2025-14874, GHSA-p6gq-j5cr-w38f) — REAL, PRODUCTION dependency (apps/api's own
-# direct package.json entry), the actual email-sending library. GHSA-p6gq-j5cr-w38f requires the
-# `raw` message option, which this codebase never uses (grepped — zero occurrences); CVE-2025-14874
-# (DoS via a crafted email-address header) has no such option gate and is more plausibly reachable
-# since candidate/employer email addresses are real user-provided data. The only available fix
-# crosses nodemailer's major version boundary (6.x -> 7.x) and was deliberately NOT force-applied
-# blind — this is a live, production-critical send path (M28/M28.6) that needs real regression
-# testing before any version change, not a same-pass drive-by bump. Real-world blast radius is
-# currently bounded by this application's own production safety flags (EMAIL_PRODUCTION_SENDING_
-# ENABLED, CONNECTED_MAILBOX_PRODUCTION_SENDING_ENABLED, REAL_COMPANY_OUTREACH_ENABLED — all false
-# for the entire Controlled Closed Beta), but this is accepted-and-flagged, not resolved. Needs a
-# dedicated nodemailer 7.x upgrade task with real send-path testing before Staging/Production use.
-CVE-2025-14874
-GHSA-p6gq-j5cr-w38f
+# nodemailer — GENUINELY REMEDIATED at the M32 security remediation pass. Upgraded from 6.10.1 to
+# the real current 9.0.5 (both CVE-2025-14874, fixed 7.0.11+, and GHSA-p6gq-j5cr-w38f, fixed 9.0.1+,
+# now satisfied). Verified real, not blind: re-confirmed the `raw` option is never used anywhere in
+# this codebase (a match for Gmail's OWN unrelated REST API `raw` field, in
+# connected-mailbox/infrastructure/adapters/gmail-mailbox-provider.adapter.ts, was investigated and
+# confirmed to not import nodemailer at all); inspected the real nodemailer source across
+# 6.x/7.x/8.x/9.x to confirm every real breaking change (SES transport overhaul, forceAuth's
+# 'NoAuth'->'ENOAUTH' rename, tls.rejectUnauthorized default flip) is genuinely irrelevant to this
+# exact usage (plain SMTP transport, `forceAuth` never set, `tls.rejectUnauthorized` already
+# explicit). New real-library regression coverage added (smtp-email-provider.adapter.
+# real-nodemailer.spec.ts, 5 tests against the actual installed library — not mocked) alongside the
+# pre-existing mocked adapter suite. Production safety flags (EMAIL_PRODUCTION_SENDING_ENABLED
+# etc.) untouched — confirmed via file-path evidence they live entirely outside anything this
+# upgrade changed.
 
 # brace-expansion (CVE-2026-14257, CVE-2026-69152) and the devDependency-only instance of glob
 # (CVE-2025-64756, "Command Injection via Malicious Filenames" — installed version 10.4.5, which
