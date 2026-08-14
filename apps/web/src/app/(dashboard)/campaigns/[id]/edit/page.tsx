@@ -1,5 +1,6 @@
 'use client';
 
+import { use } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContextHeader } from '@/components/shell/context-header';
 import { ErrorState } from '@/components/shell/error-state';
@@ -14,10 +15,14 @@ import type { CampaignPayload } from '@/features/campaigns/api/campaigns.api';
  * backend rejects anything else (`EDITABLE_STATES`), surfaced here as a plain, honest message
  * rather than a silently-disabled form, since a user who navigates here directly by URL deserves
  * to know why, not just find the form missing. */
-export default function EditCampaignPage({ params }: { params: { id: string } }) {
+// Next.js 15 — `params` is now a Promise on both Server and Client Component pages. A Client
+// Component can't be `async`, so the real, documented way to unwrap it is React's `use()` hook
+// (not `await`) — a real API difference from the 4 Server Component pages in this same PR.
+export default function EditCampaignPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const router = useRouter();
-  const campaignQuery = useCampaign(params.id);
-  const updateCampaign = useUpdateCampaign(params.id);
+  const campaignQuery = useCampaign(id);
+  const updateCampaign = useUpdateCampaign(id);
 
   if (campaignQuery.isLoading) {
     return (
@@ -65,7 +70,7 @@ export default function EditCampaignPage({ params }: { params: { id: string } })
         submitLabel="Save changes"
         submitting={updateCampaign.isPending}
         onSubmit={(payload) => updateCampaign.mutate(payload)}
-        onCancel={() => router.push(`/campaigns/${params.id}`)}
+        onCancel={() => router.push(`/campaigns/${id}`)}
       />
     </div>
   );
