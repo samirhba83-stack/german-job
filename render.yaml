@@ -219,8 +219,19 @@ services:
   # Web — Next.js standalone server, public. NEXT_PUBLIC_API_URL is deliberately NOT set here as a
   # runtime envVar — Next.js inlines NEXT_PUBLIC_* values into the client bundle at BUILD time
   # (apps/web/Dockerfile's own ARG/ENV, set by the CD pipeline's --build-arg), so a Render runtime
-  # env var of the same name would have zero effect on the deployed frontend. NODE_ENV/PORT are
-  # already baked into the image (Dockerfile's own ENV) — nothing else to set here.
+  # env var of the same name would have zero effect on the deployed frontend. NODE_ENV is already
+  # baked into the image (Dockerfile's own ENV) — nothing else to set for it here.
+  #
+  # M31.2 Render preflight — real, provable fix: PORT WAS previously assumed to need nothing extra
+  # here ("already baked into the image"), matching the same reasoning as NODE_ENV — but Render's
+  # own docs are explicit that this is a real, separate risk for image-based services specifically:
+  # "The default value of PORT is 10000 for all Render web services... If you bind your HTTP server
+  # to a different port, Render is usually able to detect and use it" (not "always" — no stronger
+  # guarantee is documented for `runtime: image` deploys, which Render cannot introspect a
+  # Dockerfile's own EXPOSE/ENV from the way a source build could). apps/web's real container
+  # listens on 3000 (Dockerfile: `ENV PORT=3000`), not Render's own 10000 default. gje-staging-api
+  # and gje-staging-worker already set PORT explicitly for the exact same real reason — Web now
+  # matches that same, already-established, safer pattern instead of relying on "usually" detected.
   - type: web
     name: gje-staging-web
     runtime: image
@@ -229,3 +240,6 @@ services:
     region: frankfurt
     plan: starter
     healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: "3000"
