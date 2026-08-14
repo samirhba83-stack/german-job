@@ -65,21 +65,6 @@ CVE-2026-3304
 CVE-2026-3520
 CVE-2026-5079
 
-# nodemailer — GENUINELY REMEDIATED at the M32 security remediation pass. Upgraded from 6.10.1 to
-# the real current 9.0.5 (both CVE-2025-14874, fixed 7.0.11+, and GHSA-p6gq-j5cr-w38f, fixed 9.0.1+,
-# now satisfied). Verified real, not blind: re-confirmed the `raw` option is never used anywhere in
-# this codebase (a match for Gmail's OWN unrelated REST API `raw` field, in
-# connected-mailbox/infrastructure/adapters/gmail-mailbox-provider.adapter.ts, was investigated and
-# confirmed to not import nodemailer at all); inspected the real nodemailer source across
-# 6.x/7.x/8.x/9.x to confirm every real breaking change (SES transport overhaul, forceAuth's
-# 'NoAuth'->'ENOAUTH' rename, tls.rejectUnauthorized default flip) is genuinely irrelevant to this
-# exact usage (plain SMTP transport, `forceAuth` never set, `tls.rejectUnauthorized` already
-# explicit). New real-library regression coverage added (smtp-email-provider.adapter.
-# real-nodemailer.spec.ts, 5 tests against the actual installed library — not mocked) alongside the
-# pre-existing mocked adapter suite. Production safety flags (EMAIL_PRODUCTION_SENDING_ENABLED
-# etc.) untouched — confirmed via file-path evidence they live entirely outside anything this
-# upgrade changed.
-
 # brace-expansion (CVE-2026-14257, CVE-2026-69152) and the devDependency-only instance of glob
 # (CVE-2025-64756, "Command Injection via Malicious Filenames" — installed version 10.4.5, which
 # `pnpm why` confirms resolves ONLY via @nestjs/cli/jest, never via the production bcrypt chain;
@@ -105,34 +90,42 @@ CVE-2026-18446
 GHSA-5p4m-2wfm-xmqj
 CVE-2026-59869
 
-# --- apps/web image (scanned for the first time this pass — same reason as the API image above) ---
+# --- apps/web image ---
 #
-# next (CVE-2026-44573, CVE-2026-44578, CVE-2026-64641, CVE-2026-64645, CVE-2026-64649,
-# GHSA-8h8q-6873-q5fj, GHSA-h25m-26qc-wcjf, GHSA-q4gf-8mx6-v5v3), plus its own internally-bundled
-# postcss (CVE-2026-45623, GHSA-r28c-9q8g-f849) and postcss's own bundled nanoid (CVE-2026-67213)
-# — REAL, PRODUCTION, NOT install-time-only: `pnpm why` confirms postcss 8.4.31 and nanoid 3.3.16
-# are bundled INSIDE next@14.2.35 itself (Next's own built-in CSS pipeline), not independent,
-# independently-bumpable dependencies — the devDependency-only postcss instance (via vite/
-# autoprefixer) is already on a patched 8.5.17 and is not flagged at all. Every one of these CVEs
-# traces to exactly one real root cause: apps/web/package.json pins `"next": "^14.2.15"`, and every
-# available fix is on Next 15.x/16.x — a MAJOR framework version upgrade (App Router/middleware/
-# server-action behavior changes) that needs its own dedicated task with real regression testing,
-# not a same-pass drive-by bump alongside a CI-workflow fix. Flagged explicitly to the Product
-# Owner, not silently accepted.
-CVE-2026-44573
-CVE-2026-44578
-CVE-2026-64641
-CVE-2026-64645
-CVE-2026-64649
-GHSA-8h8q-6873-q5fj
-GHSA-h25m-26qc-wcjf
-GHSA-q4gf-8mx6-v5v3
+# next + its internally-bundled postcss/nanoid (CVE-2026-44573, CVE-2026-44578, CVE-2026-64641,
+# CVE-2026-64645, CVE-2026-64649, GHSA-8h8q-6873-q5fj, GHSA-h25m-26qc-wcjf, GHSA-q4gf-8mx6-v5v3,
+# CVE-2026-45623, GHSA-r28c-9q8g-f849, CVE-2026-67213, CVE-2026-73646) — GENUINELY REMEDIATED at
+# the M32 security remediation pass: upgraded from next@14.2.35 to the real 15.5.23 (the lowest
+# secure 15.x patch satisfying every one of these CVEs simultaneously, with margin against DB
+# drift), which carries its own patched postcss/nanoid internally too. A full compatibility audit
+# was performed before upgrading (App Router/server-actions/route-handlers/next-headers/legacy-API
+# usage — see the upgrade commit for the complete real findings); the one real breaking change that
+# applied (dynamic route `params` becoming a Promise) was fixed at its 5 real call sites. Verified
+# live: real Docker build, a full real stack (Postgres + API + this Web image) driven by a real
+# headless-browser Playwright script through all 14 required application flows, 11/11 pass, zero
+# real console errors. No entries remain here for this package.
+
+# postcss (CVE-2026-45623, CVE-2026-73646) and nanoid (CVE-2026-67213) — REMAIN, at the SAME
+# 8.4.31/3.3.16, even after the next@14.2.35->15.5.23 upgrade above: confirmed via `pnpm why` that
+# next itself hard-pins its own internal postcss to the exact string "8.4.31" (like
+# @nestjs/platform-express's multer pin — a real, upstream, unfixable-without-forking pin, not
+# something skipped). Confirmed genuinely build-time-only, not a live-request risk: grepped the
+# actual built runtime server.js for any `require("postcss")` reference — none exist. Next's own
+# CSS/Tailwind pipeline runs during `next build` (baked into static .next/static output before the
+# runtime image ever starts); the running `server.js` process never invokes postcss per-request.
 CVE-2026-45623
-GHSA-r28c-9q8g-f849
-CVE-2026-67213
-# CVE-2026-73646 (postcss, "Path Traversal in Previous Source Map Auto-Loading") — surfaced by a
-# real Trivy vulnerability-DB update in the ~24h after the investigation above (confirmed real via
-# authenticated `gh run view --log` on the CI run that caught it — not guessed). Same package,
-# same bundled-inside-next@14.2.35 root cause, same deferred-to-the-Next-15/16-upgrade disposition;
-# not a new investigation, just a newer CVE ID on the exact dependency already flagged above.
 CVE-2026-73646
+CVE-2026-67213
+
+# sharp (GHSA-f88m-g3jw-g9cj, inherited libvips CVEs) — a real, NEW dependency this Next.js upgrade
+# introduced (next@15.5.23 depends on it directly; 14.2.35 did not pull it in the same way). Unlike
+# postcss above, this was NOT dismissed as build-time-only without checking: sharp powers Next's
+# built-in `/_next/image` optimization ROUTE, which is registered and live on every deployment
+# regardless of whether this app's own code renders a `next/image` component (confirmed zero usage
+# anywhere in this codebase) — verified LIVE against a real running container that the route was
+# genuinely reachable and invoked real image-processing logic before being fixed. Real fix applied
+# (next.config.js: `images: { unoptimized: true }`) and re-verified live: the same route now
+# returns a genuine 404 instead of attempting to process a request, with root/normal navigation
+# confirmed unaffected. sharp remains physically installed (next's own dependency declaration,
+# not removable without forking) but is now a provably dead, unreachable code path.
+GHSA-f88m-g3jw-g9cj
