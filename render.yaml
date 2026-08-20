@@ -232,13 +232,28 @@ services:
   # listens on 3000 (Dockerfile: `ENV PORT=3000`), not Render's own 10000 default. gje-staging-api
   # and gje-staging-worker already set PORT explicitly for the exact same real reason — Web now
   # matches that same, already-established, safer pattern instead of relying on "usually" detected.
+  # M31.2 cost optimization — plan: free (was starter). Real, evidence-based reasoning, not a
+  # blanket cost cut: gje-staging-web is a pure frontend with no webhook/background responsibility
+  # (those live on gje-staging-api/worker) — its own 15-minute inactivity spin-down (~1 min
+  # cold-start on the next request) is a real but tolerable UX cost for a Closed Beta Staging
+  # environment, not a functional risk to any real certification. gje-staging-api deliberately
+  # stays on `starter`: it's the one service that must reliably receive real-time OAuth callbacks
+  # and provider webhooks (Gmail Pub/Sub, Microsoft Graph, Paddle) for genuine M29/M30/M28.6
+  # certification — a sleeping API would silently miss or delay exactly those deliveries.
+  # gje-staging-postgres also deliberately stays on `starter`: Render's real free Postgres plan
+  # expires 30 days after creation (14-day grace period, then the database — and all its data — is
+  # deleted), a real risk for a database meant to persist through this certification's own real
+  # timeline (this milestone alone has already run well past 30 days). Free-plan compatibility with
+  # a `runtime: image` Web Service was NOT confirmed via documentation (checked; genuinely
+  # ambiguous) — Render's own real Blueprint preview is the authoritative check, matching this
+  # file's own established practice of trusting real validation over assumption.
   - type: web
     name: gje-staging-web
     runtime: image
     image:
       url: ghcr.io/samirhba83-stack/german-job-engine-web:latest
     region: frankfurt
-    plan: starter
+    plan: free
     healthCheckPath: /
     envVars:
       - key: PORT
