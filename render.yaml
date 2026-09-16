@@ -92,22 +92,55 @@ envVarGroups:
         value: resend
 
 databases:
+  # M31.2 cost/correctness pass — real, independent bug fixed here, found while researching the
+  # cheapest valid paid Postgres plan (not just a cost optimization): `plan: starter` was NEVER a
+  # valid Postgres plan slug under Render's current plan system. "Starter" only ever existed as one
+  # of Postgres's OLD, separate "legacy instance types" (Starter/Standard/Pro/Pro Plus, bundled
+  # compute+storage) — Render's own docs state plainly these "are not available for new databases."
+  # It is unrelated to the newer, general Aug-26-2026 compute-plan rename's own "legacy plan name"
+  # system (which DOES still accept names like `standard`/`pro` for Blueprints) — Postgres's legacy
+  # names under THAT system are different strings entirely (`basic-256mb`, `basic-1gb`, etc.), and
+  # `starter` was never one of them either. This Blueprint would very likely have been rejected (or
+  # silently fallen back to an unintended default) the first real time it was applied — confirmed by
+  # fetching Render's own real, current Postgres Plan-ID table directly, not assumed. `0.1c-256mb`
+  # (legacy alias `basic-256mb`) is the real, current, lowest-cost PAID Postgres plan: $6/month
+  # compute. Storage is billed separately since Render decoupled it ("flexible" Postgres plans,
+  # $0.30/GB/month) — `diskSizeGB` set explicitly to 1 (matching the Free plan's own bundled amount)
+  # rather than relying on an unstated Blueprint default, consistent with this file's own established
+  # practice elsewhere (see the Web service's own PORT fix below for the same reasoning).
   - name: gje-staging-postgres
     databaseName: german_job_engine_staging
-    plan: starter
+    plan: 0.1c-256mb
+    diskSizeGB: 1
     region: frankfurt
     postgresMajorVersion: "16"
 
 services:
   # API — RUN_TICKS=false: HTTP surface only (routes, auth, webhooks receipt). Public, since it
   # serves the frontend and every real webhook endpoint (Gmail/Graph/Paddle/email-provider).
+  #
+  # M31.2 cost optimization — plan: free (was starter), per explicit Product Owner direction to
+  # accept the documented risk below. Real research, not assumed: Render's own docs confirm a Free
+  # Web Service spins down after 15 minutes idle and takes "about one minute" to wake on the next
+  # request; they explicitly describe a "loading page" for browsers during that wake but do NOT
+  # document what happens to a non-browser caller (a webhook POST from Google Cloud Pub/Sub,
+  # Microsoft Graph, or Paddle) hitting a spun-down instance — a real, confirmed gap in Render's own
+  # documentation, not a guess dressed up as fact. Independent, non-Render-authoritative sources
+  # describe the practical risk as: many webhook senders use 10-30s delivery timeouts, shorter than
+  # Render's ~60s wake window, so the FIRST webhook after any 15-minute idle gap has a real chance
+  # of being marked failed by the sender before the instance finishes waking — whether it is ever
+  # actually lost then depends on that specific sender's own retry policy, which is outside Render's
+  # control either way. This is the exact, explicit risk being knowingly accepted here, not a hidden
+  # one — see docs/production-certification/37-m31-2-render-staging-topology.md §6 for the full
+  # writeup and the concrete post-deployment verification procedure to actually test this against
+  # this app's real webhook endpoints once the service exists.
   - type: web
     name: gje-staging-api
     runtime: image
     image:
       url: ghcr.io/samirhba83-stack/german-job-engine-api:latest
     region: frankfurt
-    plan: starter
+    plan: free
     healthCheckPath: /health
     envVars:
       - fromGroup: gje-staging-shared

@@ -125,3 +125,59 @@ Once the 4 GitHub Actions secrets above exist, the very next push to `main` (or 
 `workflow_dispatch`) will automatically build, push, and deploy to the real Staging environment —
 no further manual trigger needed. I will then run doc 40's real database certification and doc 41's
 real security re-certification against the live URL.
+
+## 6. Cost model & Free-tier limitations
+
+Real, current figures — fetched directly from Render's own docs/pricing pages (not estimated from
+stale general knowledge), current as of this pass. Verify against the real Blueprint preview before
+approving any charge; Render's own numbers there are always the final, authoritative source.
+
+| Resource | Plan ID | Legacy name | Monthly cost | Why this plan |
+|---|---|---|---|---|
+| `gje-staging-worker` | `0.5c-512mb` | `starter` (used in `render.yaml`) | ~$7/mo | **Required, non-negotiable** — Render has zero free instance type for Background Workers at all. This is the one resource that always requires payment info on file, regardless of how the other three are configured. |
+| `gje-staging-postgres` | `0.1c-256mb` | `basic-256mb` | ~$6/mo compute + $0.30/GB/mo storage (`diskSizeGB: 1` set explicitly → ~$0.30/mo) | Lowest-cost real PAID Postgres plan. Chosen over Free to avoid Free Postgres's confirmed 30-day expiration + 14-day grace period (44 days total before the database, and all its data, is permanently deleted) — staging data must persist through this certification's own real timeline. |
+| `gje-staging-api` | `free` | — | $0/mo | Per explicit Product Owner direction — accepting the real risk described below. |
+| `gje-staging-web` | `free` | — | $0/mo | Pure frontend, no webhook/background responsibility — spin-down only costs a human tester a ~1-minute cold start. |
+
+**Estimated total: ~$13.30/month.**
+
+### A real, previously-latent bug this pass fixed
+
+`gje-staging-postgres` previously carried `plan: starter`. Unlike Web Services/Workers (where
+`starter` is a genuine, still-supported legacy alias for `0.5c-512mb`), Postgres never had `starter`
+as a legacy name under Render's current plan system — it only ever existed as one of Postgres's old,
+separate, now-defunct "legacy instance types" (Starter/Standard/Pro/Pro Plus), which Render's own
+docs state explicitly "are not available for new databases." This Blueprint would very likely have
+failed real validation, or been silently coerced to an unintended default, the first time it was
+actually applied — independent of any cost decision. Fixed to the real, current `0.1c-256mb` plan ID.
+
+### The real, accepted risk: `gje-staging-api` on Free
+
+Render's own documentation confirms a Free Web Service spins down after 15 minutes with no inbound
+traffic and takes "about one minute" to wake on the next request. Render explicitly documents a
+browser-facing "loading page" during that wake window — but does **not** document what happens to a
+non-browser caller, such as a webhook POST from Google Cloud Pub/Sub, Microsoft Graph, or Paddle,
+arriving at a spun-down instance. This is a real, confirmed gap in Render's own docs, not a hidden
+detail. Independent (non-Render-authoritative) analysis suggests the practical risk: many webhook
+senders use 10–30 second delivery timeouts, shorter than Render's ~60-second wake window, so the
+first webhook delivery after any 15-minute idle gap has a real chance of being marked failed by the
+sender before the API instance finishes waking. Whether that delivery is ultimately lost then depends
+entirely on the specific sender's own retry policy (Pub/Sub, Graph, and Paddle each have their own —
+not evaluated here).
+
+**Concrete verification procedure, to run for real once `gje-staging-api` exists** (this is what
+makes the risk above "testable," not just theoretical):
+1. Let the service sit idle for at least 16 minutes (past the 15-minute spin-down threshold) —
+   confirm via Render's dashboard that it shows as spun down/idle.
+2. Send a single real `curl -w '%{time_total}\n' https://gje-staging-api.onrender.com/health` and
+   record the actual response time and status code — this measures the real cold-start latency for
+   this specific deployment, not just Render's general "~1 minute" figure.
+3. Repeat step 1, then trigger one real webhook delivery per configured provider once their real
+   credentials exist (a real Gmail Pub/Sub push, a real Microsoft Graph subscription renewal
+   notification, a real Paddle sandbox webhook) — record whether the provider's own dashboard/logs
+   show the delivery as succeeded, retried, or failed, and cross-reference against this API's own
+   structured logs for that request.
+4. If any provider's webhook is confirmed lost (not just delayed) during a cold start, that is the
+   trigger to upgrade `gje-staging-api` specifically to `starter` (a single-line `render.yaml` plan
+   change, no other architecture change) — not a reason to abandon the free-tier attempt outright,
+   since steps 1–3 may well show the real risk is smaller in practice than the worst case above.
