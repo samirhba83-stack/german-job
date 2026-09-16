@@ -15,7 +15,7 @@ import { Observable } from 'rxjs';
  * This interceptor faithfully replicates `@nestjs/platform-express`'s own real `FileInterceptor`
  * implementation (constructing a single-field multer middleware and invoking it against the raw
  * Express req/res) but imports its OWN, directly-declared multer from apps/api/package.json
- * (`"multer": "^2.2.0"`, a real, current, patched version) instead of NestJS's bundled, unfixable
+ * (`"multer": "2.3.0"`, a real, current, patched version) instead of NestJS's bundled, unfixable
  * copy — genuinely decoupling this application's actual upload code path from NestJS's own pin,
  * not just changing what a scanner reports. `@nestjs/platform-express`'s own multer@2.0.2 remains
  * physically present in node_modules (still declared by NestJS itself, and pnpm's resolution
@@ -26,6 +26,13 @@ import { Observable } from 'rxjs';
  * `multer/multer/multer.utils.ts` (not deep-imported from its internal, non-exported path — that
  * would silently break on any future NestJS patch release) so client-facing error responses are
  * byte-for-byte unchanged from before this remediation.
+ *
+ * The multer dependency is EXACT-pinned (`"2.3.0"`, no caret) rather than range-pinned: multer
+ * 2.4.0 changes the real `LIMIT_UNEXPECTED_FILE` error message text from `'Unexpected field'` to
+ * `'Unexpected file field'` (confirmed via direct upstream source diff), which would silently miss
+ * the `switch (error.message)` case below and fall through to `default: return error` — an
+ * unmapped 500 instead of the correct 400. A future multer bump past 2.3.0 must re-verify this
+ * switch against multer's real `lib/multer-error.js` before the pin is loosened.
  */
 const multerExceptions = {
   // from https://github.com/expressjs/multer/blob/master/lib/multer-error.js

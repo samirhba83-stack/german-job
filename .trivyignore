@@ -18,11 +18,14 @@ CVE-2026-4800
 
 # minimatch (CVE-2026-26996, CVE-2026-27903, CVE-2026-27904) and tar (CVE-2026-59873 [CRITICAL],
 # CVE-2026-23745, CVE-2026-23950, CVE-2026-24842, CVE-2026-26960, CVE-2026-29786, CVE-2026-31802,
-# CVE-2026-59874) — both via bcrypt -> @mapbox/node-pre-gyp, install-time-only native-module build
-# tooling (fetches/extracts bcrypt's prebuilt binary during `pnpm install`; never imported or
-# invoked by any request-handling code path). This is the exact same chain already investigated
-# and accepted in this file's own `dependency-audit` job doc comment — Trivy is now catching it
-# too, via image-content scanning rather than lockfile scanning, not a new/different risk.
+# CVE-2026-59874, CVE-2026-73566) — both via bcrypt -> @mapbox/node-pre-gyp, install-time-only
+# native-module build tooling (fetches/extracts bcrypt's prebuilt binary during `pnpm install`;
+# never imported or invoked by any request-handling code path). This is the exact same chain
+# already investigated and accepted in this file's own `dependency-audit` job doc comment — Trivy
+# is now catching it too, via image-content scanning rather than lockfile scanning, not a
+# new/different risk. CVE-2026-73566 (long-path DoS in node-tar) added after a later scan
+# re-confirmed the identical chain via `pnpm why tar -r`: still exclusively bcrypt ->
+# @mapbox/node-pre-gyp -> tar@6.2.1, install-time-only.
 CVE-2026-26996
 CVE-2026-27903
 CVE-2026-27904
@@ -34,6 +37,7 @@ CVE-2026-26960
 CVE-2026-29786
 CVE-2026-31802
 CVE-2026-59874
+CVE-2026-73566
 
 # picomatch (CVE-2026-33671) and tmp (CVE-2026-44705) — both via @nestjs/cli, a devDependency.
 # `pnpm why` confirms every resolution path for both packages runs exclusively through
@@ -44,26 +48,38 @@ CVE-2026-59874
 CVE-2026-33671
 CVE-2026-44705
 
-# multer (CVE-2026-2359, CVE-2026-3304, CVE-2026-3520, CVE-2026-5079) — GENUINELY REMEDIATED at the
-# M32 security remediation pass, but the vulnerable multer@2.0.2 remains PHYSICALLY present in
-# node_modules and still trips Trivy's scan, hence still listed here with an updated, real reason:
-# `@nestjs/platform-express@10.4.22` hard-pins its OWN internal multer to the exact string "2.0.2"
-# (not a semver range). Both `pnpm.overrides` and `pnpm.packageExtensions` (tried in BOTH their
-# package.json and pnpm-workspace.yaml locations — 4 real, empirically-verified attempts) have zero
-# effect in this repo's pinned pnpm version, so that copy cannot be forced to a patched version.
-# Real remediation instead: apps/api now directly depends on `multer@^2.2.0` (patched) in its own
-# package.json, and `PinnedFileInterceptor` (common/interceptors/pinned-file.interceptor.ts) — a
-# faithful, drop-in replacement for `@nestjs/platform-express`'s own `FileInterceptor` — imports
-# THAT pinned copy instead of NestJS's internal one. Confirmed via a full source grep that
-# `FileInterceptor`/`@nestjs/platform-express`'s multer are no longer imported anywhere in this
-# codebase, and via a real, 10-scenario HTTP-level e2e regression suite
-# (test/documents-upload.e2e-spec.ts) that the actual upload endpoint behaves identically. The
-# exploitable code path genuinely no longer exists; the vulnerable bytes on disk are real but dead,
-# unreachable code, kept installed only because @nestjs/platform-express itself still declares it.
+# multer (CVE-2026-2359, CVE-2026-3304, CVE-2026-3520, CVE-2026-5079, CVE-2026-77078,
+# CVE-2026-82333) — GENUINELY REMEDIATED at the M32 security remediation pass, but the vulnerable
+# multer@2.0.2 remains PHYSICALLY present in node_modules and still trips Trivy's scan, hence still
+# listed here with an updated, real reason: `@nestjs/platform-express@10.4.22` hard-pins its OWN
+# internal multer to the exact string "2.0.2" (not a semver range). Both `pnpm.overrides` and
+# `pnpm.packageExtensions` (tried in BOTH their package.json and pnpm-workspace.yaml locations — 4
+# real, empirically-verified attempts) have zero effect in this repo's pinned pnpm version, so that
+# copy cannot be forced to a patched version. Real remediation instead: apps/api now directly
+# depends on `multer@2.3.0` EXACT (patched, no caret — see the interceptor's own doc comment for
+# why) in its own package.json, and `PinnedFileInterceptor`
+# (common/interceptors/pinned-file.interceptor.ts) — a faithful, drop-in replacement for
+# `@nestjs/platform-express`'s own `FileInterceptor` — imports THAT pinned copy instead of NestJS's
+# internal one. Confirmed via a full source grep that `FileInterceptor`/`@nestjs/platform-express`'s
+# multer are no longer imported anywhere in this codebase, and via a real, 10-scenario HTTP-level
+# e2e regression suite (test/documents-upload.e2e-spec.ts) that the actual upload endpoint behaves
+# identically. The exploitable code path genuinely no longer exists; the vulnerable bytes on disk
+# are real but dead, unreachable code, kept installed only because @nestjs/platform-express itself
+# still declares it.
+#
+# CVE-2026-77078/CVE-2026-82333 (added at a later scan, real GitHub Security Advisory
+# `vulnerable_version_range: "< 2.3.0"` for both) previously ALSO affected the live 2.2.0 pin, not
+# just the dead 2.0.2 copy — fixed for the live copy by the same 2.3.0 bump above; only the dead
+# 2.0.2 copy remains genuinely vulnerable to these two now. A THIRD CVE from that same scan,
+# CVE-2026-77037 (real range: "= 2.2.0" exactly, confirmed via GitHub's Security Advisory API), is
+# intentionally NOT listed here: it never affected the dead 2.0.2 copy (not an exact match), and no
+# longer affects the live copy either now that it's 2.3.0 — fully resolved, no residual finding.
 CVE-2026-2359
 CVE-2026-3304
 CVE-2026-3520
 CVE-2026-5079
+CVE-2026-77078
+CVE-2026-82333
 
 # brace-expansion (CVE-2026-14257, CVE-2026-69152) and the devDependency-only instance of glob
 # (CVE-2025-64756, "Command Injection via Malicious Filenames" — installed version 10.4.5, which
@@ -76,19 +92,49 @@ CVE-2026-14257
 CVE-2026-69152
 CVE-2025-64756
 
-# fast-uri (CVE-2026-16221, CVE-2026-18446) — via @nestjs/cli -> ...-> ajv -> fast-uri,
-# devDependency-only (`pnpm why` shows no production path at all). Never runs in this image.
+# fast-uri (CVE-2026-16221, CVE-2026-18446, CVE-2026-75899, CVE-2026-75931, CVE-2026-75975,
+# CVE-2026-76172) — via @nestjs/cli -> fork-ts-checker-webpack-plugin -> webpack ->
+# terser-webpack-plugin -> schema-utils -> ajv(-formats/-keywords) -> fast-uri, devDependency-only
+# (`pnpm why fast-uri -r` shows no production path at all). Never runs in this image. The 4 newer
+# CVEs (all SSRF/host-confusion variants in URI/IDN/IPv6 parsing) were added after a later scan
+# re-confirmed the identical devDependency-only chain, same installed version (3.1.3).
 CVE-2026-16221
 CVE-2026-18446
+CVE-2026-75899
+CVE-2026-75931
+CVE-2026-75975
+CVE-2026-76172
 
-# js-yaml — TWO real instances. 4.3.0 is devDependency-only (@nestjs/cli's own tooling chain).
-# 4.1.0 IS a real production dependency, via @nestjs/swagger — but only to SERIALIZE this app's own
+# js-yaml — THREE real instances (a later scan surfaced a third, previously-undocumented one).
+# 4.3.0 is devDependency-only (@nestjs/cli -> fork-ts-checker-webpack-plugin -> cosmiconfig ->
+# js-yaml). 3.15.0 is ALSO devDependency-only, newly traced this pass: jest -> @jest/core -> (many
+# paths) -> babel-plugin-istanbul -> @istanbuljs/load-nyc-config -> js-yaml — pure test-coverage
+# config-loading tooling, confirmed via `pnpm why js-yaml -r` to have zero production path. 4.1.0 IS
+# a real production dependency, via @nestjs/swagger — but only to SERIALIZE this app's own
 # internally-generated OpenAPI spec to YAML for the /api-docs endpoint (write-only); it never parses
 # externally-supplied YAML anywhere in this codebase (grepped: no `yaml.load`/`safeLoad` call on
-# request input exists). CVE-2026-59869 and GHSA-5p4m-2wfm-xmqj are both about maliciously-crafted
-# YAML *input* being parsed — not reachable through a write-only usage.
+# request input exists). CVE-2026-59869, GHSA-5p4m-2wfm-xmqj, and the newer CVE-2026-84375 are all
+# about maliciously-crafted YAML *input* being parsed — not reachable through a write-only usage
+# (4.1.0), and not reachable at all in production for the two devDependency-only instances.
 GHSA-5p4m-2wfm-xmqj
 CVE-2026-59869
+CVE-2026-84375
+
+# browserslist (CVE-2026-73088, CVE-2026-73089) — via @nestjs/cli -> webpack -> browserslist AND
+# jest -> @jest/core -> ... -> @babel/core -> @babel/helper-compilation-targets -> browserslist,
+# devDependency-only (`pnpm why browserslist -r` shows every resolution path runs exclusively
+# through devDependencies; grepped apps/api/src for any reference — none exist). CVE-2026-73088 is
+# prototype pollution via an unguarded `for...in` in `normalizeStats()`, reachable only by feeding
+# it an untrusted `browserslist-stats.json`/`opts.stats` — a build/CI-time concern, not a
+# request-handling one, and this app supplies no such untrusted input at build time either.
+# CVE-2026-73089 is unbounded internal query-result/AST cache growth across repeated `browserslist()`
+# calls with varying queries in a long-running process — webpack/babel invoke it a bounded number of
+# times per build, not per-request, so this does not apply to the running server process at all.
+# Both fixed in 4.28.7 (installed: 4.28.6). Confirmed still physically present in the pruned
+# production image despite being devDependency-only, matching the same `pnpm prune --prod`-doesn't-
+# purge-transitive-devDependency-leftovers pattern already documented for picomatch/tmp above.
+CVE-2026-73088
+CVE-2026-73089
 
 # --- apps/web image ---
 #
