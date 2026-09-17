@@ -140,7 +140,8 @@ services:
     image:
       url: ghcr.io/samirhba83-stack/german-job-engine-api:latest
     region: frankfurt
-    plan: free
+    plan: 0.5c-512mb
+    preDeployCommand: cd /repo/packages/database && prisma migrate deploy
     healthCheckPath: /health
     envVars:
       - fromGroup: gje-staging-shared

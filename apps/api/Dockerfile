@@ -82,6 +82,7 @@ ENV BUILD_TIMESTAMP=$BUILD_TIMESTAMP
 COPY --from=build --chown=node:node /repo/node_modules /repo/node_modules
 COPY --from=build --chown=node:node /repo/apps/api/node_modules /repo/apps/api/node_modules
 COPY --from=build --chown=node:node /repo/packages/database/node_modules /repo/packages/database/node_modules
+COPY --from=build --chown=node:node /repo/packages/database/prisma /repo/packages/database/prisma
 COPY --from=build --chown=node:node /repo/packages/database/dist /repo/packages/database/dist
 COPY --from=build --chown=node:node /repo/packages/database/package.json /repo/packages/database/package.json
 COPY --from=build --chown=node:node /repo/packages/shared-types/dist /repo/packages/shared-types/dist
