@@ -203,6 +203,7 @@ services:
       url: ghcr.io/samirhba83-stack/german-job-engine-api:latest
     region: frankfurt
     plan: starter
+    preDeployCommand: cd /repo/packages/database && prisma migrate deploy
     envVars:
       - fromGroup: gje-staging-shared
       - key: RUN_TICKS
