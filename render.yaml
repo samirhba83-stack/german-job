@@ -269,17 +269,21 @@ services:
   # blanket cost cut: gje-staging-web is a pure frontend with no webhook/background responsibility
   # (those live on gje-staging-api/worker) — its own 15-minute inactivity spin-down (~1 min
   # cold-start on the next request) is a real but tolerable UX cost for a Closed Beta Staging
-  # environment, not a functional risk to any real certification. gje-staging-api deliberately
-  # stays on `starter`: it's the one service that must reliably receive real-time OAuth callbacks
-  # and provider webhooks (Gmail Pub/Sub, Microsoft Graph, Paddle) for genuine M29/M30/M28.6
-  # certification — a sleeping API would silently miss or delay exactly those deliveries.
-  # gje-staging-postgres also deliberately stays on `starter`: Render's real free Postgres plan
-  # expires 30 days after creation (14-day grace period, then the database — and all its data — is
-  # deleted), a real risk for a database meant to persist through this certification's own real
-  # timeline (this milestone alone has already run well past 30 days). Free-plan compatibility with
-  # a `runtime: image` Web Service was NOT confirmed via documentation (checked; genuinely
-  # ambiguous) — Render's own real Blueprint preview is the authoritative check, matching this
-  # file's own established practice of trusting real validation over assumption.
+  # environment, not a functional risk to any real certification.
+  #
+  # UPDATED (later pass, per explicit Product Owner direction): gje-staging-api ALSO moved to
+  # `plan: free` (see that service's own comment above for the full, explicitly-accepted webhook-
+  # wake-time risk and its doc 37 §6 verification procedure) — it does NOT "stay on starter" as an
+  # earlier version of this comment claimed; that was a real, stale-comment/code mismatch, fixed
+  # here rather than left to mislead a future reader. gje-staging-postgres does still require a
+  # PAID plan, but not `starter` either — that string was never a valid Postgres plan slug at all
+  # (see that resource's own comment above for the real bug this pass found and fixed); its real,
+  # current, lowest-cost paid plan is `0.1c-256mb`. The one service genuinely required to stay off
+  # Free for reachability reasons is gje-staging-worker (see its own comment: zero free instance
+  # type exists for Background Workers at all, non-negotiable regardless of any other choice here).
+  # Free-plan compatibility with a `runtime: image` Web Service was NOT confirmed via documentation
+  # (checked; genuinely ambiguous) — Render's own real Blueprint preview is the authoritative check,
+  # matching this file's own established practice of trusting real validation over assumption.
   - type: web
     name: gje-staging-web
     runtime: image
