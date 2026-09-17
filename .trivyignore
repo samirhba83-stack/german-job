@@ -175,3 +175,30 @@ CVE-2026-67213
 # confirmed unaffected. sharp remains physically installed (next's own dependency declaration,
 # not removable without forking) but is now a provably dead, unreachable code path.
 GHSA-f88m-g3jw-g9cj
+
+# next (CVE-2026-75604 / GHSA-p293-qw3h-jr36, CVSS3 9.0 CRITICAL path-traversal RCE on
+# Windows-hosted servers; GHSA-2xp9-vwfh-vxw4, CVSS4 9.5 CRITICAL RCE via a vulnerable libheif
+# reachable through the built-in Image Optimization API when decoding attacker-supplied AVIF
+# files) — GENUINELY REMEDIATED: upgraded next@15.5.23 -> 15.5.24 (exact-pinned, matching this
+# file's own multer precedent), the exact version both real GitHub Security Advisories name as
+# first_patched_version. Verified via a full recursive git-tree diff between the v15.5.23 and
+# v15.5.24 tags (not changelog prose alone) that this is a security-only release touching only the
+# incremental-cache path-validation code (CWE-22 fix) and the image-optimizer's AVIF/HEIF decode
+# gate (CWE-1395 fix) — zero changes to server actions, route handlers, general App Router
+# rendering/routing, middleware, or `output: 'standalone'` build/tracing. CVE-2026-75604 was
+# already not reachable in this deployment regardless (this image runs on `node:20-alpine`, not a
+# Windows filesystem — confirmed via apps/web/Dockerfile), and GHSA-2xp9-vwfh-vxw4 was already
+# mitigated by the existing `images: { unoptimized: true }` fix above (same dead `/_next/image`
+# route), but both are now closed at the version level too rather than left as accepted-risk,
+# since a safe upgrade was available. No entries remain here for either identifier.
+#
+# sharp (GHSA-rgj7-g3m4-5g8c, HIGH, libheif vulnerabilities GHSA-g89c-p67h-r497/GHSA-2jg2-4ch7-h545)
+# — GENUINELY REMEDIATED, not just documented: next@15.5.24 alone does NOT force sharp to the
+# patched 0.35.4 (its own optionalDependencies range `^0.34.3 || ^0.35.3` still permits resolving
+# the already-installed vulnerable 0.34.5 for an existing lockfile — confirmed via real dependency-
+# resolution testing during this pass's own research). Real fix: apps/web/package.json now declares
+# `"sharp": "^0.35.4"` as an explicit direct dependency (matching Next's own documented
+# recommendation for `output: 'standalone'` deployments to pin sharp explicitly), which resolves
+# and locks the actually-patched version. Confirmed compatible with this image's `node:20-alpine`
+# base (sharp 0.35 requires Node >=20.9; the `node:20-alpine` tag tracks a current 20.x patch well
+# above that floor). No entry remains here for this identifier.
